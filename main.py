@@ -24,7 +24,6 @@ with open("text_assets/topics.txt") as f:
     topics = f.read().splitlines()
 
 songs = os.listdir("music")
-random.shuffle(songs)
 
 screen_size = (1920, 1080)
 
@@ -45,18 +44,19 @@ bold_font = pygame.font.Font("assets/OpenSans-Bold.ttf", 60)
 pygame.mixer.init()
 channel = pygame.mixer.Channel(0)
 
-pygame.mixer.music.set_volume(0.125)
-pygame.mixer.music.load(f"music/{songs[0]}")
+pygame.mixer.music.set_volume(0.18)
+pygame.mixer.music.load(f"music/{random.choice(songs)}")
 pygame.mixer.music.play()
-for song in songs[1:]:
-    pygame.mixer.music.queue(f"music/{song}")
+pygame.mixer.music.set_endevent(pygame.USEREVENT + 1)
+
+# TODO list characters in alphabetical order in accordance with the new prompt
 
 class Character:
-    def __init__(self, name, sprite, measure, actions, description=None, centrality=1):
+    def __init__(self, name, sprite, p, actions, description=None, centrality=1):
         self.name = name
         self.sprite = pygame.image.load(f"image_assets/{sprite}").convert_alpha()
         self.sprite = pygame.transform.scale(self.sprite, (int(self.sprite.get_width() * (screen_size[1] / self.sprite.get_height())), screen_size[1]))
-        self.measure = measure
+        self.p = p
         self.actions = actions
         self.description = description
         self.centrality = centrality
@@ -65,16 +65,14 @@ class Character:
         return f"- {self.name}{f' ({self.description})' if self.description else ''} [{', '.join(self.actions)}]"
 
 characters = [
-    Character("Santa", sprite="santa.png", measure=1000, actions=["menace", "hypermenace"]),
-    Character("little girl", sprite="little_girl.png", measure=200, actions=["flip", "frown"]),
-    Character("depressed man in corner", sprite="depressed_man_in_corner.png", measure=12, actions=["smoke"], description="does not talk"),
-    Character("elf", sprite="elf.png", measure=8, actions=["walk", "fall over"]),
-    Character("father", sprite="father.png", measure=8, actions=["smile", "frown", "ascend"]),
-    Character("angel", sprite="angel.gif", measure=4, actions=["freeze"]),
-    Character("Decorus", sprite="decorus.png", measure=4, actions=["glare", "blush"], centrality=25),
-    Character("Secundus", sprite="secundus.png", measure=2, actions=["cry"], centrality=25),
-    Character("Serpens", sprite="serpens.png", measure=2, actions=["slither", "shift"], centrality=25),
-    Character("Arcanus", sprite="arcanus.png", measure=2, actions=["invert", "multiply"], centrality=25),
+    Character("Santa", sprite="santa.png", p=1, actions=["menace", "hypermenace"], centrality=100),
+    Character("little girl", sprite="little_girl.png", p=1, actions=["flip", "frown"], centrality=16),
+    Character("depressed man in corner", sprite="depressed_man_in_corner.png", p=0.8, actions=["smoke"], description="does not talk", centrality=1),
+    Character("elf", sprite="elf.png", p=1, actions=["walk", "fall over"], centrality=4),
+    Character("father", sprite="father.png", p=1, actions=["smile", "frown", "ascend"], centrality=4),
+    Character("angel", sprite="angel.gif", p=1, actions=["freeze"], centrality=2),
+    # Character("Decorus", sprite="decorus.png", measure=4, actions=["glare", "blush"], centrality=25),
+    # Character("Secundus", sprite="secundus.png", measure=2, actions=["cry"], centrality=25),
 ]
 
 def get_character(name):
@@ -83,8 +81,8 @@ def get_character(name):
 # get and parse response
 
 def make_prompt():
-    character_list = [character for character in characters if 1 / character.measure ** 0.5 < random.random()]
-    character_list = sorted(character_list, key=lambda character: random.lognormal(character.measure * character.centrality, 1.5), reverse=True)
+    character_list = [character for character in characters if random.random() < character.p]
+    character_list = sorted(character_list, key=lambda character: random.lognormal(character.p ** 2 * character.centrality, 1.5), reverse=True)
     character_list = "\n".join(character.describe() for character in character_list)
 
     global prompt, to_generate_from
@@ -113,23 +111,26 @@ async def get_next_lines(begin=False):
         model="gpt-4-base",
         prompt=to_generate_from,
         max_tokens=200,
-        temperature=1,
-        top_p=0.96,
+        temperature=1.13,
+        top_p=0.97,
         stop=["\n\n"],
     )
 
-    response_text = response.choices[0].text.strip()
+    response_text = response.choices[0].text
     if response.choices[0].finish_reason == "length":
         response_text = response_text.rsplit("\n", 1)[0]
         to_generate_from += response_text + "\n"
     elif response.choices[0].finish_reason == "stop":
         complete = True
-    
+   
     response_lines = response_text.splitlines()
     for line in response_lines:
         match = fullmatch(r"\<(?<speaker>.+)\> (?:\[(?<action>.+)\]|(?<text>.+))", line)
         if match is None:
             console.log(f"Invalid line: {line}")
+            break
+        if len([character for character in characters if character.name == match.group("speaker")]) == 0:
+            console.log(f"Character does not exist: {match.group('speaker')}")
             break
         
         message = {"speaker": match.group("speaker")}
@@ -166,7 +167,7 @@ async def say(message):
 
     if "text" not in message:
         current_action = message["action"]
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
         current_action = None
         if len(to_say) > 0:
             await say(to_say.pop(0))
@@ -181,6 +182,8 @@ async def say(message):
     audio.speedup(1.25).export(f"tmp/{audio_id}.wav", format="wav")
 
     channel.play(pygame.mixer.Sound(f"tmp/{audio_id}.wav"))
+    os.remove(f"tmp/{audio_id}.mp3")
+    os.remove(f"tmp/{audio_id}.wav")
     channel.set_endevent(pygame.USEREVENT)
 
 # text wrap function
@@ -239,6 +242,10 @@ async def main():
                         make_prompt()
                         to_say = []
                         asyncio.create_task(get_next_lines(begin=True))
+            elif event.type == pygame.USEREVENT + 1:
+                pygame.mixer.music.load(f"music/{random.choice(songs)}")
+                pygame.mixer.music.play()
+                pygame.mixer.music.set_endevent(pygame.USEREVENT + 1)
             elif event.type == pygame.QUIT:
                 running = False
 

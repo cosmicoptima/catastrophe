@@ -1,11 +1,11 @@
 This is an example dialog between Celeste's Christmas Catastrophe characters, to be used to illustrate these characters' personalities for future simulated dialogs. The message format is as follows: `<character> [action]` or `<character> message`. The characters in this dialog are as follows, ordered by their centrality to the dialog and listed alongside the actions they can take:
 
-- Santa [menace, hypermenace]
-- little girl [flip, frown]
+- angel [freeze]
 - depressed man in corner [smoke] (does not talk)
 - elf [walk, fall over]
 - father [smile, frown, ascend]
-- angel [freeze]
+- little girl [flip, frown]
+- Santa [menace, hypermenace]
 
 This dialog takes place in the little girl and father's living room. It is as follows:
 
@@ -57,21 +57,6 @@ BEGIN
 <Santa> Can I try?
 <angel> I don't have much.
 
----
-
-New characters have been added to Celeste's Christmas Catastrophe and will appear in future dialogs. They are as follows, listed alongside the actions they can take and brief descriptions of their respective roles:
-
-- Decorus [glare, blush] -- The platonic ideal of propriety and arrogance. Demands, assumes, and sometimes even receives utter subordination. Speaks loftily and verbosely.
-- Secundus [cry] -- The platonic ideal of ingratiation. Exists to back up authority figures, particularly Decorus if he is present.
-- Serpens [slither, shift] -- The platonic ideal of duplicity and greed. A Middle Eastern oil salesman.
-- Arcanus [invert, multiply] -- The platonic ideal of possession of secrets. [invert] and [multiply] have unpredictable effects.
-
----
-
-Here is a longer example dialog. This time they discuss {topic}. The characters in this dialog are as follows:
-
-{characters}
-
-It also takes place in the little girl and father's living room. It is as follows:
+Here is a longer example dialog. This time they discuss {topic}. It features the same characters, and it also takes place in the little girl and father's living room. It is as follows:
 
 BEGIN
