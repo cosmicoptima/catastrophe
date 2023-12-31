@@ -2,17 +2,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import asyncio
-from gtts import gTTS
 import nanoid
 from numpy import random
 from openai import AsyncOpenAI
 import os
 from pydub import AudioSegment
 import pygame
-from regex import fullmatch
 from rich.console import Console
-
-# set up variables
 
 console = Console(highlight=False)
 openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"), organization=os.getenv("OPENAI_ORG"))
@@ -27,7 +23,8 @@ songs = os.listdir("music")
 
 screen_size = (1920, 1080)
 
-# set up pygame
+SAYNEXTLINEEVENT = pygame.USEREVENT
+PLAYSONGEVENT = pygame.USEREVENT + 1
 
 pygame.init()
 pygame.display.set_caption("Celeste's Christmas Catastrophe")
@@ -44,241 +41,269 @@ bold_font = pygame.font.Font("assets/OpenSans-Bold.ttf", 60)
 pygame.mixer.init()
 channel = pygame.mixer.Channel(0)
 
-pygame.mixer.music.set_volume(0.18)
+pygame.mixer.music.set_volume(0.14)
 pygame.mixer.music.load(f"music/{random.choice(songs)}")
 pygame.mixer.music.play()
-pygame.mixer.music.set_endevent(pygame.USEREVENT + 1)
+pygame.mixer.music.set_endevent(PLAYSONGEVENT)
 
-# TODO list characters in alphabetical order in accordance with the new prompt
+
+# i copied this from stackoverflow
+def draw_wrapped_text(surface, text, rect):
+    rect = pygame.Rect(rect)
+    y = rect.top
+    line_spacing = -2
+    font_height = font.size("Tg")[1]
+    while text:
+        i = 1
+        if y + font_height > rect.bottom:
+            break
+        while font.size(text[:i])[0] < rect.width and i < len(text):
+            i += 1
+        if i < len(text): 
+            i = text.rfind(" ", 0, i) + 1
+        image = font.render(text[:i], True, (255, 255, 255))
+        surface.blit(image, (rect.left, y))
+        y += font_height + line_spacing
+        text = text[i:]
+    return text
+
 
 class Character:
-    def __init__(self, name, sprite, p, actions, description=None, centrality=1):
+    def __init__(self, name, sprite, p, actions, voice, description=None):
         self.name = name
         self.sprite = pygame.image.load(f"image_assets/{sprite}").convert_alpha()
         self.sprite = pygame.transform.scale(self.sprite, (int(self.sprite.get_width() * (screen_size[1] / self.sprite.get_height())), screen_size[1]))
         self.p = p
         self.actions = actions
+        self.voice = voice
         self.description = description
-        self.centrality = centrality
 
     def describe(self):
         return f"- {self.name}{f' ({self.description})' if self.description else ''} [{', '.join(self.actions)}]"
 
+
 characters = [
-    Character("Santa", sprite="santa.png", p=1, actions=["menace", "hypermenace"], centrality=100),
-    Character("little girl", sprite="little_girl.png", p=1, actions=["flip", "frown"], centrality=16),
-    Character("depressed man in corner", sprite="depressed_man_in_corner.png", p=0.8, actions=["smoke"], description="does not talk", centrality=1),
-    Character("elf", sprite="elf.png", p=1, actions=["walk", "fall over"], centrality=4),
-    Character("father", sprite="father.png", p=1, actions=["smile", "frown", "ascend"], centrality=4),
-    Character("angel", sprite="angel.gif", p=1, actions=["freeze"], centrality=2),
-    # Character("Decorus", sprite="decorus.png", measure=4, actions=["glare", "blush"], centrality=25),
-    # Character("Secundus", sprite="secundus.png", measure=2, actions=["cry"], centrality=25),
+    Character("Santa", sprite="santa.png", p=1, actions=["menace", "hypermenace"], voice="onyx"),
+    Character("little girl", sprite="little_girl.png", p=1, actions=["flip", "frown"], voice="nova"),
+    Character("depressed man in corner", sprite="depressed_man_in_corner.png", p=1, actions=["smoke"], voice="echo", description="does not talk"),
+    Character("elf", sprite="elf.png", p=1, actions=["walk", "fall over"], voice="fable"),
+    Character("father", sprite="father.png", p=1, actions=["smile", "frown", "ascend"], voice="alloy"),
+    Character("angel", sprite="angel.gif", p=1, actions=["freeze"], voice="shimmer"),
 ]
 
-def get_character(name):
-    return next(character for character in characters if character.name == name)
 
-# get and parse response
-
-def make_prompt():
-    character_list = [character for character in characters if random.random() < character.p]
-    character_list = sorted(character_list, key=lambda character: random.lognormal(character.p ** 2 * character.centrality, 1.5), reverse=True)
-    character_list = "\n".join(character.describe() for character in character_list)
-
-    global prompt, to_generate_from
-
-    prompt = prompt_template.format(topic=random.choice(topics), characters=character_list)
-    to_generate_from = prompt
-
-make_prompt()
-to_say = []
-generating = False
-complete = False
-
-currently_speaking = None
-
-async def get_next_lines(begin=False):
-    global complete, generating, to_say, to_generate_from
-    if generating:
-        return
-    if complete and not begin:
-        return
-    generating = True
-
-    console.log("Generating new lines...")
-
-    response = await openai.completions.create(
-        model="gpt-4-base",
-        prompt=to_generate_from,
-        max_tokens=200,
-        temperature=1.13,
-        top_p=0.97,
-        stop=["\n\n"],
-    )
-
-    response_text = response.choices[0].text
-    if response.choices[0].finish_reason == "length":
-        response_text = response_text.rsplit("\n", 1)[0]
-        to_generate_from += response_text + "\n"
-    elif response.choices[0].finish_reason == "stop":
-        complete = True
-   
-    response_lines = response_text.splitlines()
-    for line in response_lines:
-        match = fullmatch(r"\<(?<speaker>.+)\> (?:\[(?<action>.+)\]|(?<text>.+))", line)
-        if match is None:
-            console.log(f"Invalid line: {line}")
-            break
-        if len([character for character in characters if character.name == match.group("speaker")]) == 0:
-            console.log(f"Character does not exist: {match.group('speaker')}")
-            break
-        
-        message = {"speaker": match.group("speaker")}
-        if match.group("action"):
-            message["action"] = match.group("action")
-        else:
-            message["text"] = match.group("text")
-    
-        to_say.append(message)
+class Catastrophe:
+    to_say = []
 
     generating = False
-    if begin:
-        complete = False
+    complete = True
 
-    if currently_speaking is None:
-        pygame.event.post(pygame.event.Event(pygame.USEREVENT))
+    currently_speaking = None
+    currently_being_said = ""
+    current_action = None
 
-    console.log(f"Words remaining: {words_remaining()}")
-    if complete:
-        console.log("Scene is complete.")
+    def __init__(self, characters):
+        self.characters = characters
+        pygame.event.post(pygame.event.Event(SAYNEXTLINEEVENT))
 
-def words_remaining():
-    global to_say
-    return sum(len(message["text"].split()) for message in to_say if "text" in message)
+    def initialize_scene(self):
+        self.topic = random.choice(topics)
+        self.to_generate_from = []
 
-# set up audio
+    def character_by_name(self, name):
+        return next(character for character in self.characters if character.name == name)
 
-currently_being_said = ""
-current_action = None
+    def words_remaining(self):
+        return sum(len(message["text"].split()) for message in self.to_say if "text" in message)
 
-async def say(message):
-    global currently_speaking, currently_being_said, current_action
-    currently_speaking = message["speaker"]
+    async def generate_next_line(self, begin=False, catch_up=False):
+        if self.complete and not begin:
+            return
+        self.complete = False
 
-    if "text" not in message:
-        current_action = message["action"]
-        await asyncio.sleep(2)
-        current_action = None
-        if len(to_say) > 0:
-            await say(to_say.pop(0))
-        return
-
-    text = message["text"]
-    currently_being_said = text
-
-    audio_id = nanoid.generate()
-    gTTS(text, lang="en").save(f"tmp/{audio_id}.mp3")
-    audio = AudioSegment.from_mp3(f"tmp/{audio_id}.mp3")
-    audio.speedup(1.25).export(f"tmp/{audio_id}.wav", format="wav")
-
-    channel.play(pygame.mixer.Sound(f"tmp/{audio_id}.wav"))
-    os.remove(f"tmp/{audio_id}.mp3")
-    os.remove(f"tmp/{audio_id}.wav")
-    channel.set_endevent(pygame.USEREVENT)
-
-# text wrap function
-
-def draw_wrapped_text(surface, text, rect):
-    rect = pygame.Rect(rect)
-    y = rect.top
-    lineSpacing = -2
-
-    # get the height of the font
-    fontHeight = font.size("Tg")[1]
-
-    while text:
-        i = 1
-
-        # determine if the row of text will be outside our area
-        if y + fontHeight > rect.bottom:
-            break
-
-        # determine maximum width of line
-        while font.size(text[:i])[0] < rect.width and i < len(text):
-            i += 1
-
-        # if we've wrapped the text, then adjust the wrap to the last word      
-        if i < len(text): 
-            i = text.rfind(" ", 0, i) + 1
-
-        # render the line and blit it to the surface
-        image = font.render(text[:i], True, (255, 255, 255))
-
-        surface.blit(image, (rect.left, y))
-        y += fontHeight + lineSpacing
-
-        # remove the text we just blitted
-        text = text[i:]
-
-    return text
-
-# main loop
-
-async def main():
-    global currently_speaking, currently_being_said, current_action, to_say, complete
-
-    running = True
-
-    while running:
-        for event in pygame.event.get():
-            if event.type == pygame.USEREVENT:
-                if len(to_say) > 0:
-                    asyncio.create_task(say(to_say.pop(0)))
-                else:
-                    currently_speaking = None
-                    currently_being_said = ""
-
-                    if complete:
-                        make_prompt()
-                        to_say = []
-                        asyncio.create_task(get_next_lines(begin=True))
-            elif event.type == pygame.USEREVENT + 1:
-                pygame.mixer.music.load(f"music/{random.choice(songs)}")
-                pygame.mixer.music.play()
-                pygame.mixer.music.set_endevent(pygame.USEREVENT + 1)
-            elif event.type == pygame.QUIT:
-                running = False
-
-        if words_remaining() < 100:
-            asyncio.create_task(get_next_lines())
-        await asyncio.sleep(0)
-    
-        screen.blit(background, (0, 0))
-
-        if currently_speaking is not None:
-            rect = get_character(currently_speaking).sprite.get_rect()
-            rect.center = (round(screen_size[0] / 4), round(screen_size[1] / 2))
-            screen.blit(get_character(currently_speaking).sprite, rect)
-    
-            screen.blit(bold_font.render(currently_speaking, True, (255, 255, 255)), (50, 10))
-    
-            right_tint = pygame.Surface((screen_size[0] * 0.6, screen_size[1])).convert_alpha()
-            right_tint.fill((0, 0, 0, 128))
-            screen.blit(right_tint, (screen_size[0] * 0.6, 0))
-    
-            if current_action is not None:
-                draw_wrapped_text(screen, f"[{current_action}]", (screen_size[0] * 0.6 + 25, 25, screen_size[0] * 0.4 - 25, screen_size[1] - 100))
+        prompt = prompt_template.format(topic=self.topic)
+        for message in self.to_generate_from:
+            if "action" in message:
+                prompt += f"\n{message['speaker']} [{message['action']}]"
             else:
-                draw_wrapped_text(screen, currently_being_said, (screen_size[0] * 0.6 + 25, 25, screen_size[0] * 0.4 - 25, screen_size[1] - 100))
-        elif complete or len(to_say) == 0:
-            screen.blit(bold_font.render("Loading new scene...", True, (255, 255, 255)), (50, 10))
-        else:
-            screen.blit(bold_font.render("Loading...", True, (255, 255, 255)), (50, 10))
+                prompt += f"\n<{message['speaker']}> {message['text']}"
 
-        pygame.display.flip()
+        response = await openai.completions.create(
+            model="gpt-4-base",
+            prompt=prompt,
+            max_tokens=1,
+            temperature=1,
+            top_p=0.96,
+            stop=["\n\n"],
+        )
+        if response.choices[0].finish_reason == "stop":
+            console.log("Scene is complete.")
+            self.complete = True
 
-        clock.tick(60)
+        if not self.complete:
+            prompt += "\n<"
 
-    pygame.quit()
+            while True:
+                response = await openai.completions.create(
+                    model="gpt-4-base",
+                    prompt=prompt,
+                    max_tokens=50,
+                    temperature=1,
+                    top_p=0.96,
+                    stop=[">"],
+                )
+                if response.choices[0].finish_reason == "length":
+                    continue
+                speaker = response.choices[0].text
+                if len([character for character in characters if character.name == speaker]) > 0:
+                    message = {"speaker": speaker}
+                    break
 
-asyncio.run(main())
+            prompt += f"{speaker}>"
+
+            while True:
+                response = await openai.completions.create(
+                    model="gpt-4-base",
+                    prompt=prompt,
+                    max_tokens=100,
+                    temperature=1.06,
+                    top_p=0.96,
+                    stop=["\n"],
+                )
+                if response.choices[0].finish_reason == "length":
+                    continue
+                output = response.choices[0].text[1:]
+                
+                if output.startswith("[") and output.endswith("]"):
+                    action = output[1:-1]
+                    if action in self.character_by_name(speaker).actions:
+                        message["action"] = action
+                        break
+                    else:
+                        continue
+                elif "[" in output or "]" in output:
+                    continue
+                else:
+                    message["text"] = output
+                    break
+
+            if "text" in message:
+                response = await openai.audio.speech.create(
+                    model="tts-1",
+                    voice=self.character_by_name(message["speaker"]).voice,
+                    input=message["text"],
+                    speed=0.85,
+                )
+                audio_id = nanoid.generate()
+                message["audio_id"] = audio_id
+                response.stream_to_file(f"tmp/{audio_id}.mp3")
+                audio = AudioSegment.from_mp3(f"tmp/{audio_id}.mp3")
+                audio.export(f"tmp/{audio_id}.wav", format="wav")
+
+            self.to_say.append(message)
+            self.to_generate_from.append(message)
+
+        if self.currently_speaking is None and not catch_up:
+            pygame.event.post(pygame.event.Event(SAYNEXTLINEEVENT))
+
+    async def generate_next_lines(self, n, begin=False, catch_up=False):
+        if self.generating:
+            return
+        self.generating = True
+
+        console.log(f"Generating {n} lines...")
+
+        if begin:
+            await self.generate_next_line(begin=True, catch_up=catch_up)
+            n -= 1
+        for i in range(n):
+            await self.generate_next_line(catch_up=catch_up and i < n - 1)
+
+        self.generating = False
+
+    async def say_next_line(self):
+        try:
+            message = self.to_say.pop(0)
+        except IndexError:
+            self.currently_speaking = None
+            return
+
+        self.currently_speaking = message["speaker"]
+        console.log(f"{self.currently_speaking} is now speaking...")
+
+        if "action" in message:
+            self.current_action = message["action"]
+            await asyncio.sleep(2)
+            self.current_action = None
+            await self.say_next_line()
+            return
+        
+        self.currently_being_said = message["text"]
+
+        audio_id = message["audio_id"]
+        channel.play(pygame.mixer.Sound(f"tmp/{audio_id}.wav"))
+        os.remove(f"tmp/{audio_id}.wav")
+        channel.set_endevent(SAYNEXTLINEEVENT)
+
+    async def run(self):
+        running = True
+
+        while running:
+            for event in pygame.event.get():
+                if event.type == SAYNEXTLINEEVENT:
+                    self.currently_speaking = None
+                    self.currently_being_said = ""
+
+                    if len(self.to_say) > 0:
+                        asyncio.create_task(self.say_next_line())
+                    elif self.complete:
+                        self.initialize_scene()
+                        asyncio.create_task(self.generate_next_lines(5, begin=True, catch_up=True))
+
+                elif event.type == PLAYSONGEVENT:
+                    pygame.mixer.music.load(f"music/{random.choice(songs)}")
+                    pygame.mixer.music.play()
+                    pygame.mixer.music.set_endevent(PLAYSONGEVENT)
+
+                elif event.type == pygame.QUIT:
+                    running = False
+
+            if self.words_remaining() < 50 and not self.complete:
+                asyncio.create_task(self.generate_next_lines(3))
+            await asyncio.sleep(0)
+        
+            screen.blit(background, (0, 0))
+
+            if self.currently_speaking is not None:
+                sprite = self.character_by_name(self.currently_speaking).sprite
+                sprite_rect = sprite.get_rect()
+                sprite_rect.center = (round(screen_size[0] / 4), round(screen_size[1] / 2))
+                screen.blit(sprite, sprite_rect)
+        
+                screen.blit(bold_font.render(self.currently_speaking, True, (255, 255, 255)), (50, 10))
+        
+                message_background = pygame.Surface((screen_size[0] * 0.6, screen_size[1])).convert_alpha()
+                message_background.fill((0, 0, 0, 128))
+                screen.blit(message_background, (screen_size[0] * 0.6, 0))
+        
+                draw_message = lambda text: draw_wrapped_text(screen, text, (screen_size[0] * 0.6 + 25, 25, screen_size[0] * 0.4 - 25, screen_size[1] - 100))
+
+                if self.current_action is not None:
+                    draw_message(f"[{self.current_action}]")
+                else:
+                    draw_message(self.currently_being_said)
+
+            elif self.complete:
+                screen.blit(bold_font.render("Loading new scene...", True, (255, 255, 255)), (50, 10))
+
+            else:
+                screen.blit(bold_font.render("Loading...", True, (255, 255, 255)), (50, 10))
+
+            pygame.display.flip()
+            clock.tick(60)
+
+        pygame.quit()
+
+
+catastrophe = Catastrophe(characters=characters)
+asyncio.run(catastrophe.run())

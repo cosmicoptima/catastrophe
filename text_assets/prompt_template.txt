@@ -1,4 +1,4 @@
-This is an example dialog between Celeste's Christmas Catastrophe characters, to be used to illustrate these characters' personalities for future simulated dialogs. The message format is as follows: `<character> [action]` or `<character> message`. The characters in this dialog are as follows, ordered by their centrality to the dialog and listed alongside the actions they can take:
+This is an example dialog between Celeste's Christmas Catastrophe characters, to be used to illustrate these characters' personalities for future simulated dialogs. The message format is as follows: `<character> [action]` or `<character> message`. The characters in this dialog, listed alongside the actions they can take, are as follows:
 
 - angel [freeze]
 - depressed man in corner [smoke] (does not talk)
@@ -19,7 +19,7 @@ BEGIN
 <little girl> There won't be any more Christmases after that? But why?
 <Santa> [hypermenace]
 <depressed man in corner> [smoke]
-<elf> He has ordered that the North Pole shut down after 2040, and has as of yet refused to reveal why. You know just as much as I do, little girl. How I wish I knew! How I wish there were something I could do.
+<elf> He has ordered that the North Pole shut down after 2040, and has yet refused to reveal why. You know just as much as I do, little girl. How I wish I knew! How I wish there were something I could do.
 <Santa> There is probably nothing you can do.
 <elf> Probably?
 <Santa> Yes, that is what I said.
@@ -57,6 +57,6 @@ BEGIN
 <Santa> Can I try?
 <angel> I don't have much.
 
-Here is a longer example dialog. This time they discuss {topic}. It features the same characters, and it also takes place in the little girl and father's living room. It is as follows:
+Here is a longer example dialog. This dialog is primarily about {topic}. It features the same characters, and it also takes place in the little girl and father's living room. It is as follows:
 
 BEGIN
