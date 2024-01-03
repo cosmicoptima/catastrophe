@@ -21,15 +21,16 @@ with open("text_assets/topics.txt") as f:
 
 songs = os.listdir("music")
 
-screen_size = (1920, 1080)
-
 SAYNEXTLINEEVENT = pygame.USEREVENT
 PLAYSONGEVENT = pygame.USEREVENT + 1
 
 pygame.init()
 pygame.display.set_caption("Celeste's Christmas Catastrophe")
-screen = pygame.display.set_mode(screen_size)
 clock = pygame.time.Clock()
+
+display_info = pygame.display.Info()
+screen_size = (display_info.current_w, display_info.current_h)
+screen = pygame.display.set_mode(screen_size)
 
 background = pygame.image.load("image_assets/background.png").convert()
 background = pygame.transform.scale(background, screen_size)
@@ -141,7 +142,7 @@ class Catastrophe:
             self.complete = True
 
         if not self.complete:
-            prompt += "\n<"
+            prompt += "\n"
 
             while True:
                 response = await openai.completions.create(
@@ -152,14 +153,14 @@ class Catastrophe:
                     top_p=0.96,
                     stop=[">"],
                 )
-                if response.choices[0].finish_reason == "length":
+                if not response.choices[0].text.startswith("<"):
                     continue
-                speaker = response.choices[0].text
+                speaker = response.choices[0].text[1:]
                 if len([character for character in characters if character.name == speaker]) > 0:
                     message = {"speaker": speaker}
                     break
 
-            prompt += f"{speaker}>"
+            prompt += f"<{speaker}>"
 
             while True:
                 response = await openai.completions.create(
