@@ -17,6 +17,7 @@ numpy = "^1.26.2"
 pedalboard = "^0.8.7"
 scipy = "^1.11.4"
 num2words = "^0.5.13"
+asyncclick = "^8.1.7.1"
 
 
 [build-system]

@@ -58,7 +58,7 @@ BEGIN
 <Santa> Can I try?
 <angel> I don't have much.
 
-Here is a longer dialog. It will end partway, and you will be given the choice between {n_continuations} continuations. You will choose the best one.
+Here is a longer dialog. It will end partway, and you will be given the choice between {n_continuations} continuations. {instructions}
 
 This dialog is primarily about {topic}. It{same_location} takes place {location}. It features the following characters:{characters}. The dialog is as follows:
 

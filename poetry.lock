@@ -32,6 +32,21 @@ test = ["anyio[trio]", "coverage[toml] (>=7)", "exceptiongroup (>=1.2.0)", "hypo
 trio = ["trio (>=0.23)"]
 
 [[package]]
+name = "asyncclick"
+version = "8.1.7.1"
+description = "Composable command line interface toolkit, async version"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "asyncclick-8.1.7.1-py3-none-any.whl", hash = "sha256:e0fea5f0223ac45cfc26153cc80a58cc65fc077ac8de79be49248c918e8c3422"},
+    {file = "asyncclick-8.1.7.1.tar.gz", hash = "sha256:a47b61258a689212cf9463fbf3b4cc52d05bfd03185f6ead2315fc03fd17ef75"},
+]
+
+[package.dependencies]
+anyio = "*"
+colorama = {version = "*", markers = "platform_system == \"Windows\""}
+
+[[package]]
 name = "certifi"
 version = "2023.11.17"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -684,4 +699,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "0dc5f45e2fd556e22c84846512fa66ff1b1f9914680659623f353a02e8715e13"
+content-hash = "749d341c8349bbac5df1a01e68f27600125f09be86d6553c6d0a6dbdba159057"

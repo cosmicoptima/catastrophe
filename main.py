@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import asyncclick as click
 import asyncio
 from dataclasses import dataclass
 import nanoid
@@ -14,8 +15,7 @@ from pydub import AudioSegment
 import pygame
 import re
 from rich.console import Console
-# from scipy.spatial import distance
-from typing import Any, List, Optional
+from typing import List, Optional
 
 console = Console(highlight=False)
 openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"), organization=os.getenv("OPENAI_ORG"))
@@ -135,6 +135,26 @@ class Criterion:
     pass
 
 
+@dataclass
+class Insts:
+    instructions: str
+
+
+@dataclass
+class BestInsts(Insts):
+    instructions: str = "You will choose the best one."
+
+
+@dataclass
+class FrustrationInsts(Insts):
+    instructions: str = "Choose the continuation that causes you to feel the angriest or most frustrated, particularly in the context of the rest of the dialog. If none of them seem to provoke you, pay attention to subtler bodily sensations. Think about the dialog conditional on it including each continuation, and take note of any tension in your chest or stomach, or any increase in heart rate. Choose the continuation that induces the most reactance."
+
+
+@dataclass
+class SchizoInsts(Insts):
+    instructions: str = "You will choose the continuation that causes you to feel the most schizo."
+
+
 @dataclass(match_args=True)
 class Invert(Criterion):
     subcriterion: Criterion
@@ -160,22 +180,10 @@ class Longest(Criterion):
 
 @dataclass(match_args=True)
 class OneOffSelector(Criterion):
+    instructions: Insts
+
     def __str__(self):
         return f"OneOffSelector"
-
-
-# @dataclass(match_args=True)
-# class RelevanceTo(Criterion):
-#     target: str
-# 
-#     def __str__(self):
-#         return f"RelevanceTo({self.target})"
-# 
-# 
-# @dataclass(match_args=True)
-# class RelevanceToTopic(Criterion):
-#     def __str__(self):
-#         return "RelevanceToTopic"
 
 
 class Autoweaver:
@@ -203,21 +211,26 @@ class Catastrophe:
     to_say = []
 
     generating = False
+    generating_audio = False
     complete = True
+
+    catching_up = False
+    remaining_to_catch_up = 0
 
     currently_speaking = None
     currently_being_said = ""
     current_action = None
 
-    def __init__(self, location_ps, autoweaver_generator=None):
+    def __init__(self, location_ps, autoweaver_generator=None, constant_topic=None):
         self.location_ps = location_ps
         self.autoweaver_generator = autoweaver_generator
+        self.constant_topic = constant_topic
         pygame.event.post(pygame.event.Event(SAYNEXTLINEEVENT))
 
     async def initialize_scene(self):
         self.autoweaver = self.autoweaver_generator() if self.autoweaver_generator else Autoweaver()
         self.location = random.choice([location for location, _ in self.location_ps], p=[p for _, p in self.location_ps])
-        self.topic = random.choice(topics)
+        self.topic = self.constant_topic if self.constant_topic is not None else random.choice(topics)
 
         console.log(f"Autoweaver: {self.autoweaver}")
         console.log(f"Location: {self.location.name}")
@@ -293,65 +306,55 @@ class Catastrophe:
         if not self.complete:
             prompt += "\n"
 
-            speakers = []
-            while True:
-                response = await openai.completions.create(
-                    model="gpt-4-base",
-                    prompt=prompt,
-                    n=self.autoweaver.n - len(speakers),
-                    max_tokens=50,
-                    temperature=1,
-                    top_p=0.96,
-                    stop=[">"],
-                )
+            console.log("Generating speakers...")
 
-                speakers_from_response = [choice.text[1:] for choice in response.choices if choice.text.startswith("<")]
-                speakers_from_response = [speaker for speaker in speakers_from_response if len([character for character in self.characters if character.name == speaker]) > 0]
-                speakers += speakers_from_response
+            response = await openai.completions.create(
+                model="gpt-4-base",
+                prompt=prompt,
+                n=self.autoweaver.n,
+                max_tokens=50,
+                temperature=1,
+                top_p=0.96,
+                stop=[">"],
+            )
 
-                if len(speakers) >= self.autoweaver.n:
-                    break
+            speakers = [choice.text[1:] for choice in response.choices if choice.text.startswith("<")]
+            speakers = [speaker for speaker in speakers if len([character for character in self.characters if character.name == speaker]) > 0]
 
-            messages = [None for _ in range(self.autoweaver.n)]
+            prompts = [prompt + f"<{speaker}>" for speaker in speakers]
 
-            while True:
-                remaining_indices = [i for i, message in enumerate(messages) if message is None]
-                prompts = [prompt + f"<{speaker}>" for i, speaker in enumerate(speakers) if i in remaining_indices]
+            console.log("Generating body texts...")
 
-                response = await openai.completions.create(
-                    model="gpt-4-base",
-                    prompt=prompts,
-                    max_tokens=300,
-                    temperature=1,
-                    top_p=0.96,
-                    stop=["\n"],
-                )
+            response = await openai.completions.create(
+                model="gpt-4-base",
+                prompt=prompts,
+                max_tokens=300,
+                temperature=1,
+                top_p=0.96,
+                stop=["\n"],
+            )
 
-                def process(i):
-                    if response.choices[i].finish_reason == "length":
-                        return
+            def process(i):
+                if response.choices[i].finish_reason == "length":
+                    return
 
-                    output = response.choices[i].text[1:]
-                    speaker = speakers[remaining_indices[i]]
+                output = response.choices[i].text[1:]
+                speaker = speakers[i]
 
-                    if output.startswith("[") and output.endswith("]"):
-                        action = output[1:-1]
-                        if action in self.character_by_name(speaker).actions:
-                            return {"speaker": speaker, "action": action}
-                        else:
-                            return
-                    elif any(substring in output for substring in ["[", "]", "<", ">"]):
-                        return
+                if output.startswith("[") and output.endswith("]"):
+                    action = output[1:-1]
+                    if action in self.character_by_name(speaker).actions:
+                        return {"speaker": speaker, "action": action}
                     else:
-                        return {"speaker": speaker, "text": output}
+                        return
+                elif any(substring in output for substring in ["[", "]", "<", ">"]):
+                    return
+                else:
+                    return {"speaker": speaker, "text": output}
 
-                for i in range(len(remaining_indices)):
-                    messages[remaining_indices[i]] = process(i)
-
-                if all(message is not None for message in messages):
-                    break
-
-            messages: List[Any] = messages
+            console.log("Lengths of outputs: " + ", ".join(str(len(choice.text)) for choice in response.choices))
+            messages = [process(i) for i in range(len(response.choices))]
+            messages = [message for message in messages if message is not None]
 
             async def evaluate_by(criterion):
                 match criterion:
@@ -361,7 +364,7 @@ class Catastrophe:
                         return await evaluate_by(random.choice(subcriteria, p=ps)) # type: ignore
                     case Longest():
                         return [len(message["text"]) if "text" in message else 14 for message in messages]
-                    case OneOffSelector():
+                    case OneOffSelector(instructions):
                         # TODO: the autoweaver should be able to select the speaker
                         continuations = "\n".join([f"#{i + 1}: {self.message_as_text(message)}" for i, message in enumerate(messages)])
                         history = "\n".join([self.message_as_text(message) for message in self.to_generate_from])
@@ -373,11 +376,14 @@ class Catastrophe:
                             topic=self.topic,
 
                             n_continuations=num2words(len(messages)) if len(messages) < 10 else len(messages),
+                            instructions=instructions,
                             continuations=continuations,
                             history=history,
                         )
 
                         while True:
+                            console.log("Generating one-off selector response...")
+
                             response = await openai.completions.create(
                                 model="gpt-4-base",
                                 prompt=prompt,
@@ -391,24 +397,6 @@ class Catastrophe:
                                 choice = int(match.group(0))
                                 if 1 <= choice <= len(messages):
                                     return [1 if i == choice - 1 else 0 for i in range(len(messages))]
-
-                    # case RelevanceTo(target):
-                    #     response = await openai.embeddings.create(
-                    #         input=target,
-                    #         model="text-embedding-ada-002",
-                    #     )
-                    #     target_embedding = response.data[0].embedding
-
-                    #     message_body_values = [[value for value in body.values()][0] for body in message_bodies]
-
-                    #     response = await openai.embeddings.create(
-                    #         input=[prompt + body_value for body_value in message_body_values],
-                    #         model="text-embedding-ada-002",
-                    #     )
-                    #     message_body_embeddings = [response.data[i].embedding for i in range(len(message_body_values))]
-                    #     return [-distance.cosine(target_embedding, body_embedding) for body_embedding in message_body_embeddings]
-                    # case RelevanceToTopic():
-                    #     return await evaluate_by(RelevanceTo(self.topic))
 
                 raise TypeError(f"Invalid criterion: {criterion}")
             
@@ -427,17 +415,28 @@ class Catastrophe:
             return
         self.generating = True
 
-        console.log(f"Generating {n} lines...")
+        # i'm a little fucked up and evil
+        await asyncio.sleep(0)
+        if catch_up and not self.generating_audio:
+            self.catching_up = True
+            self.remaining_to_catch_up = n
 
         if begin:
             await self.generate_next_line(begin=True, catch_up=catch_up)
             n -= 1
+            self.remaining_to_catch_up -= 1
         for i in range(n):
             await self.generate_next_line(catch_up=catch_up and i < n - 1)
+            self.remaining_to_catch_up -= 1
+
+        if catch_up:
+            self.catching_up = False
 
         self.generating = False
 
     async def generate_audio_for(self, id_, catch_up=False):
+        self.generating_audio = True
+
         message = next(message for message in self.to_say if message["id"] == id_)
 
         if "text" in message:
@@ -463,6 +462,8 @@ class Catastrophe:
             index = next(i for i, message in enumerate(self.to_say) if message["id"] == id_)
             self.to_say[index]["audio_id"] = audio_id
 
+        self.generating_audio = False
+
         if self.currently_speaking is None and not catch_up:
             pygame.event.post(pygame.event.Event(SAYNEXTLINEEVENT))
 
@@ -482,7 +483,6 @@ class Catastrophe:
         message = self.to_say.pop(next(i for i, message in enumerate(self.to_say) if message["id"] == id_))
 
         self.currently_speaking = message["speaker"]
-        console.log(f"{self.currently_speaking} is now speaking...")
 
         if is_action:
             self.current_action = message["action"]
@@ -512,7 +512,7 @@ class Catastrophe:
                         asyncio.create_task(self.say_next_line())
                     elif self.complete:
                         await self.initialize_scene()
-                        asyncio.create_task(self.generate_next_lines(5, begin=True, catch_up=True))
+                        asyncio.create_task(self.generate_next_lines(20, begin=True, catch_up=True))
 
                 elif event.type == PLAYSONGEVENT:
                     self.location.play_song()
@@ -520,8 +520,11 @@ class Catastrophe:
                 elif event.type == pygame.QUIT:
                     running = False
 
-            if self.words_remaining() < 125 and not self.complete:
-                asyncio.create_task(self.generate_next_lines(3))
+            if not self.complete:
+                if self.currently_speaking is None:
+                    asyncio.create_task(self.generate_next_lines(20, catch_up=True))
+                else:
+                    asyncio.create_task(self.generate_next_lines(1))
             await asyncio.sleep(0)
 
             screen.blit(self.location.background, (0, 0))
@@ -548,6 +551,9 @@ class Catastrophe:
             elif self.complete:
                 screen.blit(bold_font.render("Loading new scene...", True, (255, 255, 255)), (50, 25))
 
+            elif self.catching_up:
+                screen.blit(bold_font.render(f"Loading; {self.remaining_to_catch_up} remaining...", True, (255, 255, 255)), (50, 25))
+
             else:
                 screen.blit(bold_font.render("Loading...", True, (255, 255, 255)), (50, 25))
 
@@ -557,5 +563,12 @@ class Catastrophe:
         pygame.quit()
 
 
-catastrophe = Catastrophe(location_ps=location_ps, autoweaver_generator=lambda: Autoweaver(n=5, criterion=OneOffSelector()))
-asyncio.run(catastrophe.run())
+@click.command()
+@click.option("--topic")
+async def main(topic):
+    catastrophe = Catastrophe(location_ps=location_ps, autoweaver_generator=lambda: Autoweaver(n=3, criterion=OneOffSelector(SchizoInsts())), constant_topic=topic)
+    await catastrophe.run()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
