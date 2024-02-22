@@ -1,7 +1,8 @@
 __pycache__/
 .DS_Store
+.venv/
 
+.env
+scene_options.yaml
 output/*
 tmp/*
-.venv/
-.env

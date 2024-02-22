@@ -1,0 +1,14 @@
+- name: in the little girl and father's living room
+  background: living_room.png
+  music_directory: christmas
+  volume: 0.22
+
+- name: on a wooden platform amid the void
+  background: void.png
+  music_directory: void
+  volume: 0.3
+
+# - name: in Hell
+#   background: hell.jpg
+#   music_directory: hell
+#   volume: 0.3

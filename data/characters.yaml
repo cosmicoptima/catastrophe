@@ -1,0 +1,35 @@
+- name: angel
+  actions: [freeze]
+  sprite: angel.gif
+  voice: shimmer
+  pitch: 4
+
+- name: depressed man in corner
+  actions: [smoke]
+  sprite: depressed_man_in_corner.png
+  voice: echo
+
+- name: elf
+  actions: [walk, fall over]
+  sprite: elf.png
+  voice: fable
+
+- name: father
+  actions: [smile, frown, ascend]
+  sprite: father.png
+  voice: alloy
+
+- name: little girl
+  actions: [flip, frown]
+  sprite: little_girl.png
+  voice: nova
+
+- name: Santa
+  actions: [menace, hypermenace]
+  sprite: santa.png
+  voice: onyx
+
+- name: mother
+  actions: [smile, fret]
+  sprite: mother.png
+  voice: shimmer
