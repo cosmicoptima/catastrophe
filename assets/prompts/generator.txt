@@ -8,7 +8,11 @@ This is a series of example dialogs between Celeste's Christmas Catastrophe char
 - mother [smile, fret]
 - Santa [menace, hypermenace]
 
-The first example dialog takes place in the little girl and father's living room. It features the following characters: angel, depressed man in corner, elf, father, little girl, Santa. It is as follows:
+Example dialogs
+
+1:
+Location: in the little girl and father's living room
+Characters: angel, depressed man in corner, elf, father, little girl, Santa
 
 BEGIN
 <Santa> The meaning of Christmas is firstly spending money, and secondly pretending to be happy. So it has been for thousands of years, and so it will be until the final Christmas. It disappoints me, but certainly it does not surprise me, that so few understand this.
@@ -57,7 +61,10 @@ BEGIN
 <elf> [fall over]
 <Santa> Can I try?
 <angel> I don't have much.
+END
 
-Here is a longer example dialog. This time the characters discuss {topic}. It{same_location} takes place {location}, and features the following characters:{characters}. It is as follows:
+2:
+Location: {location}
+{topic_line}Characters:{characters}
 
 BEGIN

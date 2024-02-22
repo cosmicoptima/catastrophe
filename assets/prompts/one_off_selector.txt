@@ -1,4 +1,4 @@
-This is a series of dialogs between Celeste's Christmas Catastrophe characters, to be used to illustrate these characters' personalities for future simulated dialogs. The message format is as follows: `<character> [action]` or `<character> message`. The characters featured in these dialogs are as follows, listed alongside the actions they can take:
+This is a series of example dialogs between Celeste's Christmas Catastrophe characters, to be used to illustrate these characters' personalities for future simulated dialogs. The message format is as follows: `<character> [action]` or `<character> message`. The characters featured in these dialogs are as follows, listed alongside the actions they can take:
 
 - angel [freeze]
 - depressed man in corner [smoke] (does not talk)
@@ -8,7 +8,7 @@ This is a series of dialogs between Celeste's Christmas Catastrophe characters, 
 - mother [smile, fret]
 - Santa [menace, hypermenace]
 
-The first dialog takes place in the little girl and father's living room. It features the following characters: angel, depressed man in corner, elf, father, little girl, Santa. It is as follows:
+The first example dialog takes place in the little girl and father's living room. It features the following characters: angel, depressed man in corner, elf, father, little girl, Santa. It is as follows:
 
 BEGIN
 <Santa> The meaning of Christmas is firstly spending money, and secondly pretending to be happy. So it has been for thousands of years, and so it will be until the final Christmas. It disappoints me, but certainly it does not surprise me, that so few understand this.
@@ -57,13 +57,13 @@ BEGIN
 <elf> [fall over]
 <Santa> Can I try?
 <angel> I don't have much.
+END
 
-Here is a longer dialog. It will end partway, and you will be given the choice between {n_continuations} continuations. {instructions}
+Here is a longer example dialog. It will end partway, and you will be given the choice between {n_continuations} continuations. {instructions}
 
-This dialog is primarily about {topic}. It{same_location} takes place {location}. It features the following characters:{characters}. The dialog is as follows:
+This time the characters discuss {topic}. It{same_location} takes place {location}, and features the following characters:{characters}. It is as follows:
 
-BEGIN
-{history}
+BEGIN{history}
 
 Here are the {n_continuations} continuations:
 {continuations}

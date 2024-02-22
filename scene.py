@@ -2,17 +2,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from abc import ABC, abstractmethod
+import asyncio
 from dataclasses import dataclass
+from enum import Enum, StrEnum, auto
+from math import ceil
 from num2words import num2words
 from numpy import random
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, InternalServerError
 import os
 import re
 from rich.console import Console
+from tiktoken import get_encoding
 from typing import List, Optional, Tuple
+import yaml
 
 console = Console(highlight=False)
 openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"), organization=os.getenv("OPENAI_ORG"))
+tokenizer = get_encoding("cl100k_base")
 
 with open("assets/prompts/generator.txt") as f:
     generator_prompt = f.read().strip()
@@ -20,8 +26,22 @@ with open("assets/prompts/generator.txt") as f:
 with open("assets/prompts/one_off_selector.txt") as f:
     one_off_selector_prompt = f.read().strip()
 
-with open("assets/topics.txt") as f:
+with open("assets/prompts/operator.txt") as f:
+    operator_prompt = f.read().strip()
+
+with open("assets/prompt_fragments/topics.txt") as f:
     topics = f.read().splitlines()
+
+with open("assets/prompt_fragments/one_off_selector_instructions.yaml") as f:
+    one_off_selector_instructions = yaml.safe_load(f)
+
+
+async def complete_with_retry(**kwargs):
+    while True:
+        try:
+            return await openai.completions.create(**kwargs)
+        except InternalServerError:
+            console.log("Internal server error. Retrying...")
 
 
 @dataclass
@@ -80,14 +100,27 @@ def same_location(location):
     return location == "in the little girl and father's living room"
 
 
+location_ps = [
+    # ("in Hell", 1),
+    ("on a wooden platform amid the void", 2),
+    ("in the little girl and father's living room", 7),
+]
+
+
+class MessageType(StrEnum):
+    SPEECH = auto()
+    ACTION = auto()
+    COMMAND = auto()
+
+
 @dataclass
 class Message:
     speaker: str
     body: str
-    is_action: bool
+    type_: MessageType
 
     def __str__(self):
-        if self.is_action:
+        if self.type_ == MessageType.ACTION:
             return f"<{self.speaker}> [{self.body}]"
         else:
             return f"<{self.speaker}> {self.body}"
@@ -96,76 +129,26 @@ class Message:
 @dataclass
 class SceneData:
     messages: List[Message]
+    is_complete: bool
     characters: List[Character]
     location: str
     topic: str
 
 
-class Criterion(ABC):
+class MessageCriterion(ABC):
     @abstractmethod
     async def evaluate(self, messages: List[Message], data: SceneData):
         ...
 
 
 @dataclass
-class Invert(Criterion):
-    subcriterion: Criterion
-
-    async def evaluate(self, messages: List[Message], data: SceneData):
-        return [-score for score in await self.subcriterion.evaluate(messages)]
-
-    def __str__(self):
-        return f"Invert({self.subcriterion})"
-
-
-@dataclass
-class RandomChoice(Criterion):
-    subcriteria: List[Criterion]
-    ps: Optional[List[float]] = None
-
-    async def evaluate(self, messages: List[Message], data: SceneData):
-        return await random.choice(self.subcriteria, p=self.ps).evaluate(messages)
-
-    def __str__(self):
-        return f"RandomChoice([{', '.join(str(criterion) for criterion in self.subcriteria)}]{', ' + str(self.ps) if self.ps else ''})"
-
-
-@dataclass
-class Longest(Criterion):
-    async def evaluate(self, messages: List[Message], data: SceneData):
-        return [14 if message.is_action else len(message.body) for message in messages]
-
-    def __str__(self):
-        return "Longest"
-
-
-@dataclass
-class Insts:
+class OneOffMessageSelector(MessageCriterion):
     instructions: str
-
-
-@dataclass
-class BestInsts(Insts):
-    instructions: str = "You will choose the best one."
-
-
-@dataclass
-class FrustrationInsts(Insts):
-    instructions: str = "Choose the continuation that causes you to feel the angriest or most frustrated, particularly in the context of the rest of the dialog. If none of them seem to provoke you, pay attention to subtler bodily sensations. Think about the dialog conditional on it including each continuation, and take note of any tension in your chest or stomach, or any increase in heart rate. Choose the continuation that induces the most reactance."
-
-
-@dataclass
-class SchizoInsts(Insts):
-    instructions: str = "Choose the continuation that causes you to feel the most schizo."
-
-
-@dataclass
-class OneOffSelector(Criterion):
-    instructions: Insts
+    temperature: float = 0.3
 
     async def evaluate(self, messages: List[Message], data: SceneData):
         continuations = "\n".join([f"#{i + 1}: {message}" for i, message in enumerate(messages)])
-        history = "\n".join([str(message) for message in data.messages])
+        history = "".join([f"\n{message}" for message in data.messages])
 
         prompt = one_off_selector_prompt.format(
             characters=f" {', '.join([character.name for character in data.characters])}",
@@ -174,19 +157,19 @@ class OneOffSelector(Criterion):
             topic=data.topic,
 
             n_continuations=num2words(len(messages)) if len(messages) < 10 else len(messages),
-            instructions=self.instructions,
+            instructions=one_off_selector_instructions[self.instructions],
             continuations=continuations,
             history=history,
         )
 
         while True:
-            console.log("Generating one-off selector response...")
+            console.log("Generating one-off message selector response...")
 
-            response = await openai.completions.create(
+            response = await complete_with_retry(
                 model="gpt-4-base",
                 prompt=prompt,
                 max_tokens=1,
-                temperature=1,
+                temperature=self.temperature,
                 top_p=0.96,
             )
 
@@ -194,10 +177,80 @@ class OneOffSelector(Criterion):
             if match is not None:
                 choice = int(match.group(0))
                 if 1 <= choice <= len(messages):
-                    return [1 if i == choice - 1 else 0 for i in range(len(messages))]
+                    console.log(f"Selected continuation #{choice}.")
+                    return choice - 1
 
     def __str__(self):
         return f"OneOffSelector({self.instructions})"
+
+
+OOMS = OneOffMessageSelector
+
+
+@dataclass
+class Divide(MessageCriterion):
+    by: int
+    using: MessageCriterion
+    then: MessageCriterion
+
+    async def evaluate(self, messages: List[Message], data: SceneData):
+        chunks = [messages[i * self.by:(i + 1) * self.by] for i in range(ceil(len(messages) / self.by))]
+
+        async def evaluate(chunk):
+            return chunk[await self.using.evaluate(chunk, data)]
+        
+        new_messages = await asyncio.gather(*[evaluate(chunk) for chunk in chunks])
+        return messages.index(new_messages[await self.then.evaluate(new_messages, data)])
+
+
+@dataclass
+class DivideSelf(MessageCriterion):
+    by: int
+    using: MessageCriterion
+
+    async def evaluate(self, messages: List[Message], data: SceneData):
+        return await Divide(by=self.by, using=self.using, then=self.using).evaluate(messages, data)
+
+
+class Command:
+    pass
+
+
+@dataclass(match_args=True)
+class Display(Command):
+    message: Optional[str]
+
+
+@dataclass(match_args=True)
+class Silence(Command):
+    character: Character
+
+
+@dataclass(match_args=True)
+class Unsilence(Command):
+    character: Character
+
+
+def parse_operator_command(command):
+    display_match = re.fullmatch(r'display\s"(.*)"', command)
+    if display_match is not None:
+        return Display(display_match.group(1))
+    elif command == "display null":
+        return Display(None)
+
+    silence_match = re.fullmatch(r'silence\s"(.*)"', command)
+    if silence_match is not None:
+        character = character_by_name(silence_match.group(1))
+
+        if character is not None:
+            return Silence(character)
+
+    unsilence_match = re.fullmatch(r'unsilence\s"(.*)"', command)
+    if unsilence_match is not None:
+        character = character_by_name(unsilence_match.group(1))
+
+        if character is not None:
+            return Unsilence(character)
 
 
 class Scene:
@@ -206,16 +259,19 @@ class Scene:
         cls,
         characters_generator: CharactersGenerator,
         location_generator: LocationGenerator,
-        criterion: Criterion,
-        n: int,
-        topic: Optional[str] = None
+        message_criterion: MessageCriterion,
+        message_n: int,
+        topic: Optional[str] = None,
+        operate: bool = False,
     ):
         scene = cls()
 
-        scene.criterion = criterion
-        scene.n = n
+        scene.message_criterion = message_criterion
+        scene.message_n = message_n
 
         topic = topic if topic is not None else random.choice(topics)
+
+        scene.operate = operate
 
         match location_generator:
             case ConstantLocation(location):
@@ -230,18 +286,17 @@ class Scene:
             case ChooseCharactersFrom(characters):
                 prompt = generator_prompt.split("{characters}")[0].format(
                     location=location_,
-                    same_location=" also" if same_location(location_) else "",
-                    topic=topic,
+                    topic_line=f"Topic: {topic}\n",
                 )
 
                 while True:
-                    response = await openai.completions.create(
+                    response = await complete_with_retry(
                         model="gpt-4-base",
                         prompt=prompt,
                         max_tokens=100,
                         temperature=1,
                         top_p=0.96,
-                        stop=["."]
+                        stop=["\n"]
                     )
                     characters = [character_by_name(character) for character in response.choices[0].text[1:].split(", ")]
                     if all(character is not None for character in characters):
@@ -250,87 +305,164 @@ class Scene:
         
         scene.data = SceneData(
             messages=[],
+            is_complete=False,
             characters=characters_,
             location=location_,
             topic=topic,
         )
 
+        console.log(f"Characters: {', '.join(character.name for character in characters_)}")
+        console.log(f"Location: {location_}")
+        console.log(f"Topic: {topic}")
+
+        scene.silenced_characters = set()
+        scene.include_topic_line = True
+
         return scene
     
-    @property
-    def prompt(self):
-        prompt = generator_prompt.format(
-            characters=f" {', '.join(character.name for character in self.data.characters)}",
+    def prompt(self, operator=False):
+        prompt_template = operator_prompt if operator else generator_prompt
+
+        characters = [character.name for character in self.data.characters]
+        if operator:
+            characters.append("operator")
+            characters.sort(key=str.casefold)
+
+        base_prompt = prompt_template.format(
+            characters=f" {', '.join(characters)}",
             location=self.data.location,
-            same_location=" also" if same_location(self.data.location) else "",
-            topic=self.data.topic,
+            topic_line=f"Topic: {self.data.topic}\n" if self.include_topic_line else "",
         )
-        for message in self.data.messages:
+        messages = self.data.messages
+
+        prompt = base_prompt
+        for message in messages:
             prompt += f"\n{message}"
 
+        n_tokens = len(tokenizer.encode(prompt))
+        while n_tokens > 8000:
+            messages.pop(0)
+            prompt = f"{base_prompt}\n..."
+            for message in messages:
+                prompt += f"\n{message}"
+
         return prompt
-    
-    async def write_message(self):
-        prompt = self.prompt + "\n"
 
-        console.log("Generating speakers...")
+    async def write_messages(self):
+        messages = []
 
-        response = await openai.completions.create(
-            model="gpt-4-base",
-            prompt=prompt,
-            n=self.n,
-            max_tokens=50,
-            temperature=1,
-            top_p=0.96,
-            stop=[">"],
-        )
+        console.log("Generating messages...")
 
-        speakers = [choice.text[1:] for choice in response.choices if choice.text.startswith("<")]
-        speakers = [speaker for speaker in speakers if len([character for character in self.data.characters if character.name == speaker]) > 0]
+        async def get_character_messages():
+            return await complete_with_retry(
+                model="gpt-4-base",
+                prompt=self.prompt() + "\n",
+                n=self.message_n,
+                max_tokens=500,
+                temperature=1,
+                top_p=0.96,
+                stop=["\n"],
+                logit_bias={"4794": -3 + len(self.data.messages) * 0.05}
+            )
 
-        prompts = [prompt + f"<{speaker}>" for speaker in speakers]
+        async def get_operator_message():
+            return await complete_with_retry(
+                model="gpt-4-base",
+                prompt=self.prompt(operator=True) + "\n",
+                max_tokens=500,
+                temperature=1,
+                top_p=0.96,
+                stop=["\n"],
+                logit_bias={"8043": 2}
+            )
 
-        console.log("Generating body texts...")
+        if self.operate:
+            character_response, operator_response = await asyncio.gather(
+                get_character_messages(),
+                get_operator_message(),
+            )
+        else:
+            character_response = await get_character_messages()
+            operator_response = None
 
-        response = await openai.completions.create(
-            model="gpt-4-base",
-            prompt=prompts,
-            max_tokens=300,
-            temperature=1,
-            top_p=0.96,
-            stop=["\n"],
-        )
+        if character_response.choices[0].text.startswith("END"):
+            console.log("Scene complete!")
+            return []
 
-        def process(i):
-            if response.choices[i].finish_reason == "length":
+        if operator_response is not None:
+            operator_match = re.fullmatch(r"<operator>\s*(.*)", operator_response.choices[0].text)
+            if operator_match is not None:
+                command = operator_match.group(1)
+                console.log(f"Operator: {command}")
+
+                valid = True
+
+                match parse_operator_command(command):
+                    case Silence(character):
+                        if character.name in self.silenced_characters:
+                            valid = False
+                        else:
+                            self.silenced_characters.add(character.name)
+                    case Unsilence(character):
+                        if character.name in self.silenced_characters:
+                            self.silenced_characters.remove(character.name)
+                        else:
+                            valid = False
+                    case None:
+                        valid = False
+
+                if valid:
+                    messages.append(Message(speaker="operator", body=command, type_=MessageType.COMMAND))
+
+        def process(choice):
+            if choice.finish_reason == "length":
                 return
 
-            output = response.choices[i].text[1:]
-            speaker = speakers[i]
+            match_ = re.fullmatch(r"<([^>]+)>\s*(.*)", choice.text)
+            if match_ is None:
+                return
 
-            if output.startswith("[") and output.endswith("]"):
-                action = output[1:-1]
+            speaker = match_.group(1)
+            if character_by_name(speaker) is None or speaker in self.silenced_characters:
+                return
+
+            body = match_.group(2)
+            if body.startswith("[") and body.endswith("]"):
+                action = body[1:-1]
                 if action in character_by_name(speaker).actions:
-                    return Message(speaker, action, True)
+                    return Message(speaker, action, MessageType.ACTION)
                 else:
                     return
-            elif any(substring in output for substring in ["[", "]", "<", ">"]):
+            elif any(substring in body for substring in ["[", "]", "<", ">"]):
                 return
             else:
-                return Message(speaker, output, False)
+                return Message(speaker, body, MessageType.SPEECH)
 
-        console.log("Lengths of outputs: " + ", ".join(str(len(choice.text)) for choice in response.choices))
-        messages = [process(i) for i in range(len(response.choices))]
-        messages = [message for message in messages if message is not None]
+        console.log("Lengths of outputs: " + ", ".join(str(len(choice.text)) for choice in character_response.choices))
+        character_messages = [process(choice) for choice in character_response.choices]
+        character_messages = [message for message in character_messages if message is not None]
+
+        if len(character_messages) == 0:
+            console.log("No valid messages. Retrying...")
+            return await self.write_messages()
     
-        if self.n == 1:
-            return messages[0]
+        if self.message_n == 1:
+            messages.append(character_messages[0])
         else:
-            scores = await self.criterion.evaluate(messages, self.data)
-            return messages[scores.index(max(scores))]
-    
+            messages.append(character_messages[await self.message_criterion.evaluate(character_messages, self.data)])
+
+        return messages
+
     async def write(self):
         while True:
-            message = await self.write_message()
-            self.data.messages.append(message)
-            yield message
+            messages = await self.write_messages()
+            if messages == []:
+                self.data.is_complete = True
+                break
+
+            self.data.messages += messages
+            for message in messages:
+                yield message
+            
+            if random.random() < (len(messages) - 6) * 0.4:
+                self.include_topic_line = False
