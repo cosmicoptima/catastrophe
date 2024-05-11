@@ -6,10 +6,12 @@ from enum import StrEnum, auto
 from openai import AsyncOpenAI, InternalServerError
 import os
 from rich.console import Console
-from typing import List
+from tiktoken import get_encoding
+from typing import List, Optional
 
 console = Console(highlight=False)
 openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"), organization=os.getenv("OPENAI_ORG"))
+tokenizer = get_encoding("cl100k_base")
 
 
 async def complete_with_retry(**kwargs):
@@ -24,6 +26,10 @@ async def complete_with_retry(**kwargs):
 class Character:
     name: str
     actions: List[str]
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(d["name"], d["actions"])
 
 
 def same_location(location):
@@ -40,12 +46,26 @@ class Message:
     speaker: str
     body: str
     type_: MessageType
+    completing: bool = False
+    incomplete: bool = False
 
     def __str__(self):
-        if self.type_ == MessageType.ACTION:
-            return f"<{self.speaker}> [{self.body}]"
+        if self.completing:
+            preface = "[...]"
         else:
-            return f"<{self.speaker}> {self.body}"
+            preface = f"<{self.speaker}>"
+        
+        if self.type_ == MessageType.ACTION:
+            str_ = f"{preface} [{self.body}]"
+        else:
+            str_ = f"{preface} {self.body}"
+        
+        if self.completing:
+            str_ = f"[...] {str_}"
+        if self.incomplete:
+            str_ += " [...]"
+        
+        return str_
 
 
 @dataclass
@@ -55,3 +75,4 @@ class SceneData:
     characters: List[Character]
     location: str
     topic: str
+    include_topic_line: bool

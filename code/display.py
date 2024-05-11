@@ -70,7 +70,7 @@ async def tts_with_retry(**kwargs):
 
 
 class DisplayableCharacter:
-    def __init__(self, character, sprite, voice, effects=None, pitch=0):
+    def __init__(self, character, sprite, voice, effects=None, pitch=None):
         self.character = character
 
         self.sprite = pygame.image.load(f"data/sprites/{sprite}").convert_alpha()
@@ -78,15 +78,19 @@ class DisplayableCharacter:
 
         self.voice = voice
         self.effects = effects if effects is not None else Pedalboard([])
-        self.pitch = pitch
+        self.pitch = pitch if pitch is not None else 0
     
     @classmethod
     def from_character(cls, name, sprite, voice, effects=None, pitch=0):
         return cls(character_by_name(name), sprite, voice, effects, pitch)
+    
+    @classmethod
+    def from_dict(cls, d):
+        return cls(character_by_name(d["name"]), d["sprite"], d["voice"], d.get("effects"), d.get("pitch"))
 
 
 with open("data/characters.yaml") as f:
-    displayable_characters = [DisplayableCharacter.from_character(**character) for character in yaml.safe_load(f)]
+    displayable_characters = [DisplayableCharacter.from_dict(character) for character in yaml.safe_load(f)]
 
 
 def displayable_character_by_name(name):
@@ -120,6 +124,7 @@ class DisplayableLocation:
                 self.song_queue = list(random.permutation(self.songs))
 
         pygame.mixer.music.load(self.song_queue.pop(0))
+        pygame.mixer.music.set_volume(self.volume)
         pygame.mixer.music.play()
         pygame.mixer.music.set_endevent(SONGEND)
 
@@ -174,9 +179,12 @@ class DisplayableMessage:
 
 
 class Display:
-    def __init__(self, selector, n, topic, replay=None):
+    def __init__(self, selector, n, beam_length, beam_n, top_p, topic, replay=None):
         self.selector = selector
         self.n = n
+        self.beam_length = beam_length
+        self.beam_n = beam_n
+        self.top_p = top_p
         self.topic = topic
         self.replay = replay
     
@@ -279,7 +287,7 @@ class Display:
         self.display_queue = asyncio.Queue()
 
         self.current_em = None
-        self.frontloading = 10
+        self.frontloading = 6
 
         self.text_being_displayed = ""
 
@@ -294,6 +302,9 @@ class Display:
                 location_generator=location_generator,
                 selector=self.selector,
                 n=self.n,
+                beam_length=self.beam_length,
+                beam_n=self.beam_n,
+                top_p=self.top_p,
                 topic=self.topic,
             )
 
@@ -306,7 +317,6 @@ class Display:
 
             el = displayable_location_by_name(self.replay.location)
 
-        pygame.mixer.music.set_volume(el.volume)
         el.play_next_song()
 
         async def write():
@@ -352,12 +362,30 @@ async def display_main():
     else:
         raise ValueError("n must be provided in scene_options.yaml")
 
+    if "beam_length" in config:
+        beam_length = config["beam_length"]
+    else:
+        raise ValueError("beam_length must be provided in scene_options.yaml")
+    
+    if "beam_n" in config:
+        beam_n = config["beam_n"]
+    else:
+        raise ValueError("beam_n must be provided in scene_options.yaml")
+    
+    if "top_p" in config:
+        top_p = config["top_p"]
+    else:
+        raise ValueError("top_p must be provided in scene_options.yaml")
+
     topic = config["topic"] if "topic" in config else None
     replay = load(config["replay"]) if "replay" in config else None
 
     await Display(
         selector=selector,
         n=n,
+        beam_length=beam_length,
+        beam_n=beam_n,
+        top_p=top_p,
         topic=topic,
         replay=replay
     ).run()

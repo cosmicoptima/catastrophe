@@ -1,2 +1,3 @@
-criterion: DivideSelf(4, OOMS(dawning_realization))
+selector: DivideSelf(4, OOMS(dawning_realization))
 n: 16
+top_p: 0.97

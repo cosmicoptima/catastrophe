@@ -33,3 +33,35 @@
   actions: [smile, fret]
   sprite: mother.png
   voice: shimmer
+
+#####
+
+- name: man with briefcase
+  actions: [loosen tie, wipe sweat from brow]
+  sprite: man_with_briefcase.png
+  voice: alloy
+  pitch: -4
+
+- name: old man
+  actions: [lean on cane, clear throat]
+  sprite: old_man.png
+  voice: fable
+  pitch: -6
+
+- name: teenager with headphones
+  actions: [bob head to music, chew gum]
+  sprite: teenager_with_headphones.png
+  voice: echo
+  pitch: 4
+
+- name: woman in red
+  actions: [apply lipstick, cross and uncross legs]
+  sprite: woman_in_red.png
+  voice: nova
+  pitch: -4
+
+- name: woman with baby
+  actions: [bounce baby on knee, hum lullaby]
+  sprite: woman_with_baby.png
+  voice: shimmer
+  pitch: -4

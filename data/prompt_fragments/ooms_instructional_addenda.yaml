@@ -1,0 +1,5 @@
+anti_mode_collapse: "If the dialog is starting to become boring, repetitive, or mode-collapsed, ignore the preceding instructions. Instead, choose the continuation that you most expect to break the dialog out of its current basin."
+coherence: "Don't choose any continuation that doesn't make sense, is incoherent, or introduces unexplained plot holes."
+drama: "Try to choose continuations that maintain drama or suspense."
+increase: "In particular, look for continuations that are *more* like this than the dialog up to this point."
+increase2: "In particular, look for continuations that are *more* so than the dialog up to this point."

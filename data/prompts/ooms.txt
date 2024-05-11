@@ -59,13 +59,16 @@ BEGIN
 <angel> I don't have much.
 END
 
-Here is a longer example dialog. It will end partway, and you will be given the choice between {n_continuations} continuations. {instructions}
+Here is a longer example dialog. It will end partway, and you will be given the choice between {n_continuations} continuations. The dialog may also be empty, in which case you will choose one of {n_continuations} messages with which to begin the dialog. You will be given instructions as to how to choose a continuation.
 
-This time the characters discuss {topic}. It{same_location} takes place {location}, and features the following characters:{characters}. It is as follows:
+{topic_prefix}{same_location} takes place {location}, and features the following characters:{characters}. It is as follows:
 
 BEGIN{history}
 
 Here are the {n_continuations} continuations:
+
 {continuations}
+
+{instructions}
 
 You choose #

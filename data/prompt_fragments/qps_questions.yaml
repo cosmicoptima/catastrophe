@@ -1,0 +1,12 @@
+captivation:
+  question: How easily did this dialog retain your attention? How captivating was it?
+  answer_1: 12
+consistency:
+  question: How logically consistent is this dialog?
+  answer_1: 16
+memeplex:
+  question: How effectively did this dialog develop elements of an insightful and beautiful new memeplex?
+  answer_1: 5
+psychological_impact:
+  question: How much did this dialog affect you psychologically?
+  answer_1: 5

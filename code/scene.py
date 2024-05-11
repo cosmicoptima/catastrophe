@@ -3,23 +3,21 @@
 from core import *
 from selection import Selector
 
+import asyncio
 from dataclasses import dataclass
 from numpy import random
 import re
-from tiktoken import get_encoding
 from typing import List, Optional, Tuple
 import yaml
-
-tokenizer = get_encoding("cl100k_base")
 
 with open("data/prompts/generator.txt") as f:
     generator_prompt = f.read().strip()
 
-with open("data/prompt_fragments/topics.txt") as f:
+with open("data/prompt_fragments/topics_curated.txt") as f:
     topics = f.read().splitlines()
 
 with open("data/characters.yaml") as f:
-    characters = [Character(character["name"], character["actions"]) for character in yaml.safe_load(f)]
+    characters = [Character.from_dict(character) for character in yaml.safe_load(f)]
 
 
 def character_by_name(name):
@@ -57,9 +55,9 @@ class LocationPs(LocationGenerator):
 
 
 location_ps = [
-    # ("in Hell", 1),
-    ("on a wooden platform amid the void", 2),
-    ("in the little girl and father's living room", 7),
+    ("amid an endless expanse of blinding gray", 1),
+    ("on a wooden platform amid the void", 0),
+    ("in the little girl and father's living room", 0),
 ]
 
 
@@ -71,12 +69,18 @@ class Scene:
         location_generator: LocationGenerator,
         selector: Selector,
         n: int,
+        beam_length: int,
+        beam_n: int,
+        top_p: float,
         topic: Optional[str] = None,
     ):
         scene = cls()
 
         scene.selector = selector
         scene.n = n
+        scene.beam_length = beam_length
+        scene.beam_n = beam_n
+        scene.top_p = top_p
 
         topic = topic if topic is not None else random.choice(topics)
 
@@ -102,7 +106,7 @@ class Scene:
                         prompt=prompt,
                         max_tokens=100,
                         temperature=1,
-                        top_p=0.96,
+                        top_p=0.95,
                         stop=["\n"]
                     )
                     characters = [character_by_name(character) for character in response.choices[0].text[1:].split(", ")]
@@ -116,106 +120,172 @@ class Scene:
             characters=characters_,
             location=location_,
             topic=topic,
+            include_topic_line=True,
         )
 
+        console.log(f"Selection profile: {selector} @ {n}")
         console.log(f"Characters: {', '.join(character.name for character in characters_)}")
         console.log(f"Location: {location_}")
         console.log(f"Topic: {topic}")
 
-        scene.silenced_characters = set()
-        scene.include_topic_line = True
-
         return scene
     
-    def prompt(self):
+    def prompt(self, history=None):
+        if history is None:
+            history = self.data.messages.copy()
+
         base_prompt = generator_prompt.format(
             characters=f" {', '.join([character.name for character in self.data.characters])}",
             location=self.data.location,
-            topic_line=f"Topic: {self.data.topic}\n" if self.include_topic_line else "",
+            topic_line=f"Topic: {self.data.topic}\n" if self.data.include_topic_line else "",
         )
-        messages = self.data.messages
 
         prompt = base_prompt
-        for message in messages:
+        
+        for message in history:
             prompt += f"\n{message}"
 
-        n_tokens = len(tokenizer.encode(prompt))
+        n_tokens = len(tokenizer.encode(prompt, disallowed_special={}))
         while n_tokens > 8000:
-            messages.pop(0)
-            prompt = f"{base_prompt}\n..."
-            for message in messages:
+            history.pop(0)
+            prompt = f"{base_prompt}\n[...]"
+            for message in history:
                 prompt += f"\n{message}"
 
+        if prompt.endswith(" [...]"):
+            prompt = prompt[:-6]
         return prompt
 
-    async def write_messages(self):
+    async def write_messages(self, history):
         messages = []
+        completing = len(history) > 0 and history[-1].incomplete
 
-        console.log("Generating messages...")
+        ns = [128] * (self.n // 128) + ([self.n % 128] if self.n % 128 != 0 else [])
+        async def get_response(n):
+            return await complete_with_retry(
+                model="gpt-4-base",
+                prompt=self.prompt(history=history) + ("" if completing else "\n"),
+                n=n,
+                # max_tokens=192 if len(self.data.messages) < 6 else 256,
+                max_tokens=192,
+                temperature=1,
+                top_p=self.top_p,
+                frequency_penalty=0.25,
+                # stop=["\n"] if len(self.data.messages) < 6 else None,
+                stop=["\n"],
+                logit_bias={"4794": -3 + len(history) * 0.05}
+            )
+        
+        responses = await asyncio.gather(*[get_response(n) for n in ns])
+        # choices = [choice.text.splitlines() for response in responses for choice in response.choices if choice.finish_reason != "length" or len(self.data.messages) >= 6]
+        choices = [choice.text.splitlines() for response in responses for choice in response.choices if choice.finish_reason != "length"]
 
-        response = await complete_with_retry(
-            model="gpt-4-base",
-            prompt=self.prompt() + "\n",
-            n=self.n,
-            max_tokens=500,
-            temperature=1,
-            top_p=0.96,
-            stop=["\n"],
-            logit_bias={"4794": -3 + len(self.data.messages) * 0.05}
-        )
-
-        if response.choices[0].text.startswith("END"):
-            console.log("Scene complete!")
+        if choices[0][0] == "END":
             return []
 
-        def process(choice):
-            if choice.finish_reason == "length":
-                return
+        def process_message(message, completing=False, incomplete=False):
+            if completing:
+                speaker = history[-1].speaker
+                body = message
+            else:
+                match_ = re.fullmatch(r"<([^>]+)>\s*(.*)", message)
+                if match_ is None:
+                    return
 
-            match_ = re.fullmatch(r"<([^>]+)>\s*(.*)", choice.text)
-            if match_ is None:
-                return
+                speaker = match_.group(1)
+                if character_by_name(speaker) is None:
+                    return
 
-            speaker = match_.group(1)
-            if character_by_name(speaker) is None or speaker in self.silenced_characters:
-                return
+                body = match_.group(2)
 
-            body = match_.group(2)
             if body.startswith("[") and body.endswith("]"):
                 action = body[1:-1]
                 if action in character_by_name(speaker).actions:
-                    return Message(speaker, action, MessageType.ACTION)
+                    return Message(speaker, action, MessageType.ACTION, completing=completing, incomplete=incomplete)
                 else:
                     return
             elif any(substring in body for substring in ["[", "]", "<", ">"]):
                 return
             else:
-                return Message(speaker, body, MessageType.SPEECH)
+                return Message(speaker, body, MessageType.SPEECH, completing=completing, incomplete=incomplete)
+            
+        def process(choice):
+            # if len(self.data.messages) > 6:
+            #     incomplete = len(choice) == 1
+            #     if not incomplete:
+            #         choice = choice[:-1]
+            # else:
+            #     incomplete = False
 
-        console.log("Lengths of outputs: " + ", ".join(str(len(choice.text)) for choice in response.choices))
-        unselected_messages = [process(choice) for choice in response.choices]
-        unselected_messages = [message for message in unselected_messages if message is not None]
+            # lol
+            incomplete = False
+            
+            choice = choice[:3]
 
-        if len(unselected_messages) == 0:
+            messages = [process_message(message, completing=i == 0 if completing else False, incomplete=incomplete) for i, message in enumerate(choice)]
+
+            if any(message is None for message in messages):
+                return
+            return messages
+
+        unselected_choices = [process(choice) for choice in choices]
+        unselected_choices = [choice for choice in unselected_choices if choice is not None]
+
+        if len(unselected_choices) == 0:
             console.log("No valid messages. Retrying...")
             return await self.write_messages()
-        elif len(unselected_messages) == 1:
-            messages.append(unselected_messages[0])
+        elif len(unselected_choices) == 1:
+            messages += unselected_choices[0]
         else:
-            messages.append(unselected_messages[await self.selector.select(unselected_messages, self.data)])
+            messages += unselected_choices[await self.selector.select(unselected_choices, self.data)]
 
         return messages
 
-    async def write(self):
+    async def write_message_batches(self):
+        history = self.data.messages.copy()
+        messages = []
+        is_complete = False
+
+        i = 0
         while True:
-            messages = await self.write_messages()
-            if messages == []:
-                self.data.is_complete = True
+            new_messages = await self.write_messages(history)
+            if new_messages == []:
+                is_complete = True
                 break
 
-            self.data.messages += messages
-            for message in messages:
+            if new_messages[0].completing:
+                updated_message = new_messages.pop(0)
+                updated_message.body = messages[-1].body + updated_message.body
+                updated_message.completing = False
+                messages[-1] = updated_message
+            else:
+                i += 1
+                console.log(f"Wrote message, {i=}")
+
+            history += new_messages
+            messages += new_messages
+            if i == self.beam_length:
+                break
+        
+        return {"messages": messages, "is_complete": is_complete}
+
+    async def write(self):
+        while True:
+            branches = await asyncio.gather(*[self.write_message_batches() for _ in range(self.beam_n)])
+            if len(branches) > 1:
+                branch = branches[await self.selector.select([branch["messages"] for branch in branches], self.data)]
+            else:
+                branch = branches[0]
+
+            self.data.messages += branch["messages"]
+            for message in branch["messages"]:
                 yield message
-            
-            if random.random() < (len(messages) - 6) * 0.4:
-                self.include_topic_line = False
+
+            self.data.is_complete = branch["is_complete"]
+
+            if self.data.is_complete:
+                console.log("Scene complete!")
+                break
+
+            # if random.random() < (len(self.data.messages) - 6) * 0.4:
+            #     self.data.include_topic_line = False

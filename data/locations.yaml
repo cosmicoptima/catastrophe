@@ -8,6 +8,11 @@
   music_directory: void
   volume: 0.3
 
+- name: amid an endless expanse of blinding gray
+  background: gray.jpg
+  music_directory: gray
+  volume: 0.22
+
 # - name: in Hell
 #   background: hell.jpg
 #   music_directory: hell

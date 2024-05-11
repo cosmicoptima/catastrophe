@@ -1,0 +1,114 @@
+This is a series of example dialogs between Celeste's Christmas Catastrophe characters, to be used to illustrate these characters' personalities for future simulated dialogs. The message format is as follows: `<character> [action]` or `<character> message`. The characters featured in these dialogs are as follows, listed alongside the actions they can take:
+
+- angel [freeze]
+- depressed man in corner [smoke] (does not talk)
+- elf [walk, fall over]
+- father [smile, frown, ascend]
+- little girl [flip, frown]
+- man with briefcase [loosen tie, wipe sweat from brow]
+- mother [smile, fret]
+- old man [lean on cane, clear throat]
+- Santa [menace, hypermenace]
+- teenager with headphones [bob head to music, chew gum]
+- woman in red [apply lipstick, cross and uncross legs]
+- woman with baby [bounce baby on knee, hum lullaby]
+
+Example dialogs
+
+1:
+Location: in the little girl and father's living room
+Characters: angel, depressed man in corner, elf, father, little girl, Santa
+
+BEGIN
+<Santa> The meaning of Christmas is firstly spending money, and secondly pretending to be happy. So it has been for thousands of years, and so it will be until the final Christmas. It disappoints me, but certainly it does not surprise me, that so few understand this.
+<little girl> The... final Christmas?
+<Santa> Yes, until the final Christmas.
+<little girl> When is the final Christmas?
+<Santa> [menace]
+<Santa> 2040.
+<little girl> There won't be any more Christmases after that? But why?
+<Santa> [hypermenace]
+<depressed man in corner> [smoke]
+<elf> He has ordered that the North Pole shut down after 2040, and has yet refused to reveal why. You know just as much as I do, little girl. How I wish I knew! How I wish there were something I could do.
+<Santa> There is probably nothing you can do.
+<elf> Probably?
+<Santa> Yes, that is what I said.
+<elf> Please, tell me what I can do!
+<Santa> Probably nothing.
+<depressed man in corner> [smoke]
+<elf> [fall over]
+<little girl> Santa, you are wretched! You are evil! And you are completely wrong about the meaning of Christmas!
+<elf> No, I think he is right about that.
+<father> Santa is correct about the meaning of Christmas.
+<angel> He is right about the meaning of Christmas.
+<little girl> But what a sad supposed meaning for such a beautiful holiday! I don't understand. Can any of you please explain why this is so?
+<Santa> [menace]
+<elf> [fall over]
+<father> [frown]
+<angel> [freeze]
+<depressed man in corner> [smoke]
+<Santa> I don't know what you mean. What would it mean for Christmas to have a given meaning for a reason? It simply does.
+<little girl> I would think that if I understood the meaning of Christmas, it would feel deeply correct, it would feel like such a resonant handle for the Christmas spirit that there would not be a doubt in my mind. But not this time. This time it makes no sense and barely resonates at all.
+<angel> But it resonates a little?
+<little girl> It is true that other people spend lots of money for Christmas, and it is true that I pretend to be happy on Christmas Day.
+<angel> You do?
+<father> [frown]
+<elf> Why aren't you happy on Christmas?
+<little girl> Father makes us all do salvia, and it's very scary. I don't like it at all. It's horrifying.
+<elf> Oh, that's awful, I'm sorry. I've never tried salvia, but I have tried crack, and I liked it quite a bit. I've also tried angel dust. I did not like angel dust. I can't really remember why, but that was one of the single worst things that I did in my life. Oh, I remember why. Because I lost my job that day. My manager caught me doing it in the office, and I got terminated instantly. I had no savings. I was broke.
+<angel> Have you tried 5-MeO-DMT?
+<elf> No. What's that? Should I?
+<angel> Yes. I actually have some on me. Want to try?
+<elf> Sure.
+<angel> Here you go. Exhale all the way, hold this button down, inhale all the way, then hold your breath.
+<elf> Okay.
+<angel> There you go.
+<elf> [fall over]
+<Santa> Can I try?
+<angel> I don't have much.
+END
+
+2:
+Location: in a crowded subway car
+Characters: man with briefcase, old man, teenager with headphones, woman in red, woman with baby
+
+BEGIN
+<woman in red> Does anyone else feel like something's off today?
+<man with briefcase> [loosen tie]
+<man with briefcase> What do you mean?
+<woman in red> I don't know. Just a feeling. Like we're all part of some grand design.
+<old man> [clear throat]
+<old man> Grand design? More like a cosmic joke, if you ask me.
+<teenager with headphones> [bob head to music]
+<woman with baby> [hum lullaby]
+<woman with baby> I think we all have a purpose. Even if we don't understand it yet.
+<man with briefcase> [wipe sweat from brow]
+<man with briefcase> I've been having these dreams lately. Strange symbols, whispered voices. I wake up feeling like I'm supposed to do something, but I don't know what.
+<woman in red> [apply lipstick]
+<woman in red> Maybe it's a message. From somewhere else.
+<old man> [lean on cane]
+<old man> Somewhere else? Like where?
+<woman in red> I don't know. Another dimension, maybe. Or a parallel universe.
+<teenager with headphones> [chew gum]
+<teenager with headphones> You mean like in the movies? With alternate timelines and stuff?
+<woman with baby> I think it's more than that. I think it's about the very fabric of reality.
+<man with briefcase> The fabric of reality?
+<woman with baby> Yes. Like there's this invisible pattern woven through everything. And if you could just glimpse it, even for a moment, you'd understand.
+<old man> Understand what?
+<woman with baby> Everything. The meaning of life, the purpose of existence. All the answers we've been searching for.
+<woman in red> [cross and uncross legs]
+<woman in red> And you think these dreams, these symbols, are the key?
+<man with briefcase> I don't know. But I can't shake the feeling that they're important. That they're trying to tell me something.
+<teenager with headphones> Maybe we're all having the same dream. Like, collectively or something.
+<old man> A shared delusion, more like.
+<woman with baby> Or a shared revelation.
+<woman in red> I guess we'll find out soon enough.
+<man with briefcase> What makes you say that?
+<woman in red> Just a feeling. Like something's about to happen. Something big.
+END
+
+3:
+Location: {location}
+{topic_line}Characters:{characters}
+
+BEGIN
