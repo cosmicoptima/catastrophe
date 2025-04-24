@@ -1,3 +1,4 @@
+from core import PreservedScene
 from scene import *
 import selection
 
@@ -9,16 +10,6 @@ import random
 from time import strftime
 
 
-@dataclass
-class PreservedScene:
-    location: str
-    messages: List[Message]
-
-    async def replay(self):
-        for message in self.messages:
-            yield message
-
-
 def make_filename(scene):
     return f"{strftime('%y%m%d%H%M%S')}-{random.randrange(100000):06}-{scene.data.topic}"
 
@@ -28,6 +19,8 @@ def save(scene, filename):
         "messages": [{"speaker": message.speaker, "body": message.body, "type": str(message.type_)} for message in scene.data.messages],
         "location": scene.data.location,
         "topic": scene.data.topic,
+        "base_url": scene.data.base_url,
+        "model": scene.data.model,
     }
     Path("output").mkdir(exist_ok=True)
     with open(f"output/{filename}.json", "wb") as f:
@@ -37,8 +30,8 @@ def save(scene, filename):
 def load(full_filename):
     with open(full_filename, "rb") as f:
         data = orjson.loads(f.read())
-    
-    return PreservedScene(location=data["location"], messages=[Message(speaker=message["speaker"], body=message["body"], type_=MessageType(message["type"])) for message in data["messages"]])
+
+    return PreservedScene(location=data["location"], topic=data["topic"], messages=[Message(speaker=message["speaker"], body=message["body"], type_=MessageType(message["type"])) for message in data["messages"]])
 
 
 scenes_complete = 0
@@ -57,26 +50,35 @@ async def write_scene():
         n = config["n"]
     else:
         raise ValueError("n must be provided in scene_options.yaml")
-    
+
     if "top_p" in config:
         top_p = config["top_p"]
     else:
         raise ValueError("top_p must be provided in scene_options.yaml")
 
+    if "base_url" in config:
+        base_url = config["base_url"]
+    else:
+        raise ValueError("base_url must be provided in scene_options.yaml")
+
+    if "model" in config:
+        model = config["model"]
+    else:
+        raise ValueError("model must be provided in scene_options.yaml")
     topic = config["topic"] if "topic" in config else None
-    additional_topic = config["additional_topic"] if "additional_topic" in config else None
 
     scene = await Scene.create(
         characters_generator=ChooseCharactersFrom(characters),
         location_generator=LocationPs(location_ps),
         selector=selector,
         n=n,
+        base_url=base_url,
+        model=model,
         top_p=top_p,
         topic=topic,
-        additional_topic=additional_topic,
     )
     filename = make_filename(scene)
-    
+
     global scenes_complete
 
     async for message in scene.write():

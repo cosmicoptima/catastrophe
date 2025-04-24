@@ -14,10 +14,11 @@ openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"), organization=os.getenv
 tokenizer = get_encoding("cl100k_base")
 
 
-async def complete_with_retry(**kwargs):
+async def complete_with_retry(base_url, **kwargs):
+    client = AsyncOpenAI(base_url=base_url, api_key=os.getenv("API_KEY"), organization=os.getenv("ORG"))
     while True:
         try:
-            return await openai.completions.create(**kwargs)
+            return await client.completions.create(**kwargs)
         except InternalServerError:
             console.log("Internal server error. Retrying...")
 
@@ -54,17 +55,17 @@ class Message:
             preface = "[...]"
         else:
             preface = f"<{self.speaker}>"
-        
+
         if self.type_ == MessageType.ACTION:
             str_ = f"{preface} [{self.body}]"
         else:
             str_ = f"{preface} {self.body}"
-        
+
         if self.completing:
             str_ = f"[...] {str_}"
         if self.incomplete:
             str_ += " [...]"
-        
+
         return str_
 
 
@@ -75,4 +76,18 @@ class SceneData:
     characters: List[Character]
     location: str
     topic: str
+    base_url: str
+    model: str
     include_topic_line: bool
+    seed: Optional[int] = None
+
+
+@dataclass
+class PreservedScene:
+    location: str
+    topic: str
+    messages: List[Message]
+
+    async def replay(self):
+        for message in self.messages:
+            yield message

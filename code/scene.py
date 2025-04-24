@@ -1,5 +1,6 @@
 # TODO: rename
 
+from archival import PreservedScene
 from core import *
 from selection import Selector
 
@@ -56,8 +57,8 @@ class LocationPs(LocationGenerator):
 
 location_ps = [
     ("amid an endless expanse of blinding gray", 1),
-    ("on a wooden platform amid the void", 0),
-    ("in the little girl and father's living room", 0),
+    ("on a wooden platform amid the void", 5),
+    ("in the little girl and father's living room", 5),
 ]
 
 
@@ -69,8 +70,8 @@ class Scene:
         location_generator: LocationGenerator,
         selector: Selector,
         n: int,
-        beam_length: int,
-        beam_n: int,
+        base_url: str,
+        model: str,
         top_p: float,
         topic: Optional[str] = None,
     ):
@@ -78,8 +79,6 @@ class Scene:
 
         scene.selector = selector
         scene.n = n
-        scene.beam_length = beam_length
-        scene.beam_n = beam_n
         scene.top_p = top_p
 
         topic = topic if topic is not None else random.choice(topics)
@@ -90,7 +89,7 @@ class Scene:
             case LocationPs(location_ps):
                 location_ps = [(location, p / sum(p for _, p in location_ps)) for location, p in location_ps]
                 location_ = random.choice([location for location, _ in location_ps], p=[p for _, p in location_ps])
-        
+
         match characters_generator:
             case ConstantCharacters(characters):
                 characters_ = characters
@@ -102,7 +101,8 @@ class Scene:
 
                 while True:
                     response = await complete_with_retry(
-                        model="gpt-4-base",
+                        base_url,
+                        model=model,
                         prompt=prompt,
                         max_tokens=100,
                         temperature=1,
@@ -113,14 +113,17 @@ class Scene:
                     if all(character is not None for character in characters):
                         characters_ = sorted(characters, key=lambda character: str.casefold(character.name))
                         break
-        
+
         scene.data = SceneData(
             messages=[],
             is_complete=False,
             characters=characters_,
             location=location_,
             topic=topic,
+            base_url=base_url,
+            model=model,
             include_topic_line=True,
+            seed=random.randint(2**32),
         )
 
         console.log(f"Selection profile: {selector} @ {n}")
@@ -129,7 +132,28 @@ class Scene:
         console.log(f"Topic: {topic}")
 
         return scene
-    
+
+    @classmethod
+    def continue_(cls, selector, n, top_p, preserved_scene: PreservedScene):
+        scene = cls()
+
+        scene.selector = selector
+        scene.n = n
+        scene.top_p = top_p
+
+        scene.data = SceneData(
+            messages=preserved_scene.messages,
+            is_complete=False,
+            characters=characters,
+            location=preserved_scene.location,
+            topic=preserved_scene.topic,
+            base_url="https://api.openai.com/v1",
+            model="gpt-4-base",
+            include_topic_line=True,
+            seed=random.randint(2**32),
+        )
+        return scene
+
     def prompt(self, history=None):
         if history is None:
             history = self.data.messages.copy()
@@ -141,7 +165,7 @@ class Scene:
         )
 
         prompt = base_prompt
-        
+
         for message in history:
             prompt += f"\n{message}"
 
@@ -156,14 +180,18 @@ class Scene:
             prompt = prompt[:-6]
         return prompt
 
-    async def write_messages(self, history):
+    async def write_messages(self):
+        self.data.seed = random.randint(2**32)
+
+        history = self.data.messages.copy()
         messages = []
         completing = len(history) > 0 and history[-1].incomplete
 
         ns = [128] * (self.n // 128) + ([self.n % 128] if self.n % 128 != 0 else [])
         async def get_response(n):
             return await complete_with_retry(
-                model="gpt-4-base",
+                self.data.base_url,
+                model=self.data.model,
                 prompt=self.prompt(history=history) + ("" if completing else "\n"),
                 n=n,
                 # max_tokens=192 if len(self.data.messages) < 6 else 256,
@@ -175,7 +203,7 @@ class Scene:
                 stop=["\n"],
                 logit_bias={"4794": -3 + len(history) * 0.05}
             )
-        
+
         responses = await asyncio.gather(*[get_response(n) for n in ns])
         # choices = [choice.text.splitlines() for response in responses for choice in response.choices if choice.finish_reason != "length" or len(self.data.messages) >= 6]
         choices = [choice.text.splitlines() for response in responses for choice in response.choices if choice.finish_reason != "length"]
@@ -208,7 +236,7 @@ class Scene:
                 return
             else:
                 return Message(speaker, body, MessageType.SPEECH, completing=completing, incomplete=incomplete)
-            
+
         def process(choice):
             # if len(self.data.messages) > 6:
             #     incomplete = len(choice) == 1
@@ -219,7 +247,7 @@ class Scene:
 
             # lol
             incomplete = False
-            
+
             choice = choice[:3]
 
             messages = [process_message(message, completing=i == 0 if completing else False, incomplete=incomplete) for i, message in enumerate(choice)]
@@ -239,49 +267,28 @@ class Scene:
         else:
             messages += unselected_choices[await self.selector.select(unselected_choices, self.data)]
 
-        return messages
+        self.data.is_complete = messages == []
 
-    async def write_message_batches(self):
-        history = self.data.messages.copy()
-        messages = []
-        is_complete = False
-
-        i = 0
-        while True:
-            new_messages = await self.write_messages(history)
-            if new_messages == []:
-                is_complete = True
-                break
-
-            if new_messages[0].completing:
-                updated_message = new_messages.pop(0)
-                updated_message.body = messages[-1].body + updated_message.body
+        if not self.data.is_complete:
+            if messages[0].completing:
+                updated_message = messages.pop(0)
+                updated_message.body = history[-1].body + updated_message.body
                 updated_message.completing = False
-                messages[-1] = updated_message
+                history[-1] = updated_message
             else:
-                i += 1
-                console.log(f"Wrote message, {i=}")
+                console.log(f"Wrote message...")
 
-            history += new_messages
-            messages += new_messages
-            if i == self.beam_length:
-                break
-        
-        return {"messages": messages, "is_complete": is_complete}
+        history += messages
+        self.data.messages = history
+
+        return messages
 
     async def write(self):
         while True:
-            branches = await asyncio.gather(*[self.write_message_batches() for _ in range(self.beam_n)])
-            if len(branches) > 1:
-                branch = branches[await self.selector.select([branch["messages"] for branch in branches], self.data)]
-            else:
-                branch = branches[0]
+            messages = await self.write_messages()
 
-            self.data.messages += branch["messages"]
-            for message in branch["messages"]:
+            for message in messages:
                 yield message
-
-            self.data.is_complete = branch["is_complete"]
 
             if self.data.is_complete:
                 console.log("Scene complete!")

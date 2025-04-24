@@ -6,3 +6,4 @@ __pycache__/
 scene_options.yaml
 output/*
 tmp/*
+lora/*

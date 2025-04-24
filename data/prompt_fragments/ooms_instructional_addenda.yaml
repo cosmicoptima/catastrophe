@@ -3,3 +3,6 @@ coherence: "Don't choose any continuation that doesn't make sense, is incoherent
 drama: "Try to choose continuations that maintain drama or suspense."
 increase: "In particular, look for continuations that are *more* like this than the dialog up to this point."
 increase2: "In particular, look for continuations that are *more* so than the dialog up to this point."
+differently: "In particular, look for continuations that are like this in a *different* way than the dialog has been so far."
+evolution: "Make sure that the dialog changes or evolves over time."
+celeste: "Your name is Celeste."

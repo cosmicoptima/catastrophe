@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from lark import Lark, Transformer
 from math import ceil, exp
 from num2words import num2words
+import numpy as np
 import re
-from typing import List
+from typing import List, Tuple
 import yaml
 
 with open("data/prompts/gps.txt") as f:
@@ -38,15 +39,50 @@ class Selector(ABC):
         ...
 
 
+class Instructions(ABC):
+    @abstractmethod
+    def generate_prompt(self, seed):
+        ...
+
+
 @dataclass
-class OOMS(Selector):
+class StaticInstructions(Instructions):
     instructions: str
     instructional_addenda: List[str] = None
 
-    async def select(self, choices: List[List[Message]], data: SceneData):
+    def generate_prompt(self, seed):
         instructions = ooms_instructions[self.instructions]
         for addendum in self.instructional_addenda:
             instructions += " " + ooms_instructional_addenda[addendum]
+
+        return instructions
+
+
+@dataclass
+class InstructionDistribution(Instructions):
+    distribution: List[Tuple[StaticInstructions, float]]
+
+    def generate_prompt(self, seed):
+        rng = np.random.default_rng(seed)
+        return rng.choice(
+            [instructions.generate_prompt(seed) for instructions, _ in self.distribution],
+            p=[p for _, p in self.distribution],
+        )
+
+
+@dataclass
+class OOMS(Selector):
+    # instructions: str
+    # instructional_addenda: List[str] = None
+
+    instructions: Instructions
+
+    async def select(self, choices: List[List[Message]], data: SceneData):
+        # instructions = ooms_instructions[self.instructions]
+        # for addendum in self.instructional_addenda:
+        #     instructions += " " + ooms_instructional_addenda[addendum]
+
+        instructions = self.instructions.generate_prompt(data.seed)
 
         rendered_choices = ["\n".join([str(message) for message in choice]) for choice in choices]
         continuations = "\n\n".join([f"#{i + 1}:\n{choice}" for i, choice in enumerate(rendered_choices)])
@@ -77,12 +113,13 @@ class OOMS(Selector):
 
             if len(tokenizer.encode(prompt, disallowed_special={})) < 8000:
                 break
-            
+
             history_messages.pop(0)
 
         while True:
             response = await complete_with_retry(
-                model="gpt-4-base",
+                data.base_url,
+                model=data.model,
                 prompt=prompt,
                 max_tokens=1,
                 temperature=0,
@@ -96,7 +133,7 @@ class OOMS(Selector):
 
     def __str__(self):
         return f"OOMS({self.instructions})"
-    
+
 
 @dataclass
 class QPS(Selector):
@@ -128,12 +165,13 @@ class QPS(Selector):
 
                 if len(tokenizer.encode(prompt, disallowed_special={})) < 8000:
                     return prompt
-                
+
                 history_messages.pop(0)
-            
+
         prompts = [prompt_conditional_on(choice) for choice in choices]
         responses = await complete_with_retry(
-            model="gpt-4-base",
+            data.base_url,
+            model=data.model,
             prompt=prompts,
             max_tokens=1,
             logprobs=5,
@@ -149,7 +187,7 @@ class QPS(Selector):
         console.log("Expected scores:", *[f"{expected_score(choice):.3f}" for choice in responses.choices])
 
         return max(range(len(choices)), key=lambda i: expected_score(responses.choices[i]))
-    
+
     def __str__(self):
         return f"QPS({self.question})"
 
@@ -182,12 +220,13 @@ class GPS(Selector):
 
                 if len(tokenizer.encode(prompt, disallowed_special={})) < 8000:
                     return prompt
-                
+
                 history_messages.pop(0)
-            
+
         prompts = [prompt_conditional_on(choice) for choice in choices]
         responses = await complete_with_retry(
-            model="gpt-4-base",
+            data.base_url,
+            model=data.model,
             prompt=prompts,
             max_tokens=1,
             logprobs=5,
@@ -199,7 +238,7 @@ class GPS(Selector):
         console.log("Scores:", *[f"{score(choice):.3f}" for choice in responses.choices])
 
         return max(range(len(choices)), key=lambda i: score(responses.choices[i]))
-    
+
     def __str__(self):
         return f"GPS({self.goal})"
 
@@ -215,7 +254,7 @@ class Divide(Selector):
 
         async def select(chunk):
             return chunk[await self.using.select(chunk, data)]
-        
+
         new_messages = await asyncio.gather(*[select(chunk) for chunk in chunks])
         return messages.index(new_messages[await self.then.select(new_messages, data)])
 
@@ -241,18 +280,27 @@ class DivideSelf(Selector):
 
 selector_parser = Lark(r"""
     COMMA: WS? "," WS?
+    EQUALS: WS? "=" WS?
     WORD: /\w+/
     WORDS: /\w(\w| )+\w/
 
     divide: "Divide(" INT COMMA selector COMMA selector ")"
     divide_self: "DivideSelf(" INT COMMA selector COMMA INT ")"
     gps: "GPS(" WORD ")"
-    ooms_no_addenda: "OOMS(" WORD ")"
-    ooms_addenda: "OOMS(" WORD COMMA WORDS ")"
     qps: "QPS(" WORD ")"
-              
-    selector: divide | divide_self | gps | ooms_no_addenda | ooms_addenda | qps
 
+    si_no_addenda: "[" WORD "]"
+    si_addenda: "[" WORD COMMA WORDS "]"
+    si: si_no_addenda | si_addenda
+    ip: si EQUALS FLOAT
+    id: "Random(" ip (COMMA ip)* ")"
+
+    instruction: si | id
+    ooms: "OOMS(" instruction ")"
+
+    selector: divide | divide_self | gps | ooms | qps
+
+    %import common.FLOAT
     %import common.INT
     %import common.WS
 """, start="selector")
@@ -261,22 +309,43 @@ selector_parser = Lark(r"""
 class SelectorTransformer(Transformer):
     def divide(self, c):
         return Divide(int(c[0]), c[2], c[4])
-    
+
     def divide_self(self, c):
         return DivideSelf(int(c[0]), c[2], int(c[4]))
-    
+
     def gps(self, c):
         return GPS(str(c[0]))
-    
-    def ooms_no_addenda(self, c):
-        return OOMS(str(c[0]), [])
-    
-    def ooms_addenda(self, c):
-        return OOMS(str(c[0]), str(c[2]).split(" "))
-    
+
+    def si_no_addenda(self, c):
+        return StaticInstructions(str(c[0]), [])
+
+    def si_addenda(self, c):
+        return StaticInstructions(str(c[0]), str(c[2]).split(" "))
+
+    def si(self, c):
+        return c[0]
+
+    def ip(self, c):
+        return (c[0], float(c[2]))
+
+    def id(self, c):
+        return InstructionDistribution([item for item in c if isinstance(item, tuple)])
+
+    def instruction(self, c):
+        return c[0]
+
+    def ooms(self, c):
+        return OOMS(c[0])
+
+    # def ooms_no_addenda(self, c):
+    #     return OOMS(str(c[0]), [])
+
+    # def ooms_addenda(self, c):
+    #     return OOMS(str(c[0]), str(c[2]).split(" "))
+
     def qps(self, c):
         return QPS(str(c[0]))
-    
+
     def selector(self, c):
         return c[0]
 

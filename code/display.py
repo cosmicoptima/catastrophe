@@ -52,7 +52,7 @@ def draw_wrapped_text(surface, text, rect):
             break
         while font.size(text[:i])[0] < rect.width and i < len(text):
             i += 1
-        if i < len(text): 
+        if i < len(text):
             i = text.rfind(" ", 0, i) + 1
         image = font.render(text[:i], True, (255, 255, 255))
         surface.blit(image, (rect.left, y))
@@ -79,11 +79,11 @@ class DisplayableCharacter:
         self.voice = voice
         self.effects = effects if effects is not None else Pedalboard([])
         self.pitch = pitch if pitch is not None else 0
-    
+
     @classmethod
     def from_character(cls, name, sprite, voice, effects=None, pitch=0):
         return cls(character_by_name(name), sprite, voice, effects, pitch)
-    
+
     @classmethod
     def from_dict(cls, d):
         return cls(character_by_name(d["name"]), d["sprite"], d["voice"], d.get("effects"), d.get("pitch"))
@@ -148,19 +148,19 @@ def dl_by_music_directory(music_directory):
 class DisplayableMessage:
     def __init__(self, message, audio_id=None):
         self.message = message
-        
+
         if audio_id is not None:
             self.audio = pygame.mixer.Sound(f"tmp/{audio_id}.wav")
             self.audio_id = audio_id
         elif self.message.type_ == MessageType.SPEECH and len(self.message.body) > 0:
             raise ValueError("audio_id must be provided if message is not an action")
-    
+
     def play(self):
         if self.message.type_ == MessageType.ACTION:
             async def play_action():
                 await asyncio.sleep(1.5)
                 pygame.event.post(pygame.event.Event(MESSAGEEND))
-            
+
             asyncio.create_task(play_action())
         elif self.message.type_ == MessageType.SPEECH:
             if len(self.message.body) > 0:
@@ -174,24 +174,25 @@ class DisplayableMessage:
                     pygame.mixer.music.unpause()
                     # DO NOT REMOVE
                     pygame.event.post(pygame.event.Event(MESSAGEEND))
-                
+
                 asyncio.create_task(play_nothing())
 
 
 class Display:
-    def __init__(self, selector, n, beam_length, beam_n, top_p, topic, replay=None):
+    def __init__(self, selector, n, base_url, model, top_p, topic, replay=None, continue_=None):
         self.selector = selector
         self.n = n
-        self.beam_length = beam_length
-        self.beam_n = beam_n
+        self.base_url = base_url
+        self.model = model
         self.top_p = top_p
         self.topic = topic
         self.replay = replay
-    
+        self.continue_ = continue_
+
     async def create_audio_for(self, message):
         dc = displayable_character_by_name(message.speaker)
 
-        response = await tts_with_retry(model="tts-1", voice=dc.voice, input=message.body)
+        response = await tts_with_retry(model="tts-1", voice=dc.voice, input=message.body, speed=1.15)
 
         audio_id = nanoid.generate()
 
@@ -205,7 +206,7 @@ class Display:
                 audio = dc.effects(audio, f.samplerate, reset=False)
                 audio = time_stretch(audio, f.samplerate, pitch_shift_in_semitones=dc.pitch)
                 g.write(audio)
-        
+
         os.remove(f"tmp/{audio_id}.mp3")
         os.remove(f"tmp/{audio_id}-pre.wav")
 
@@ -228,7 +229,7 @@ class Display:
                     self.current_em = None
                 elif event.type == SONGEND:
                     el.play_next_song()
-            
+
             if self.replay is None and self.scene.data.is_complete:
                 self.frontloading = None
 
@@ -253,20 +254,20 @@ class Display:
                 ec_sprite_rect = dc.sprite.get_rect()
                 ec_sprite_rect.center = (w(0.25), h(0.5))
                 screen.blit(dc.sprite, ec_sprite_rect)
-        
+
                 render_on_top_left(self.current_em.message.speaker)
-        
+
                 body_underlay = pygame.Surface((w(0.6), h(1))).convert_alpha()
                 body_underlay.fill((0, 0, 0, 128))
                 screen.blit(body_underlay, (w(0.6), 0))
-        
+
                 render_body = lambda text: draw_wrapped_text(screen, text, (w(0.6075), w(0.0075), w(0.3925), h(1) - w(0.03)))
 
                 if self.current_em.message.type_ == MessageType.ACTION:
                     render_body(f"[{self.current_em.message.body}]")
                 else:
                     render_body(self.current_em.message.body)
-            
+
             elif self.replay is None and self.scene.data.is_complete:
                 render_on_top_left("Scene complete!")
 
@@ -281,7 +282,7 @@ class Display:
             pygame.display.flip()
             clock.tick(60)
             await asyncio.sleep(0)
-    
+
     async def run(self):
         self.tts_queue = asyncio.Queue()
         self.display_queue = asyncio.Queue()
@@ -292,21 +293,24 @@ class Display:
         self.text_being_displayed = ""
 
         if self.replay is None:
-            if testing_music_for is None:
-                location_generator = LocationPs(location_ps)
-            else:
-                location_generator = ConstantLocation(dl_by_music_directory(testing_music_for).name)
+            if self.continue_ is None:
+                if testing_music_for is None:
+                    location_generator = LocationPs(location_ps)
+                else:
+                    location_generator = ConstantLocation(dl_by_music_directory(testing_music_for).name)
 
-            self.scene = await Scene.create(
-                characters_generator=ChooseCharactersFrom([dc.character for dc in displayable_characters]),
-                location_generator=location_generator,
-                selector=self.selector,
-                n=self.n,
-                beam_length=self.beam_length,
-                beam_n=self.beam_n,
-                top_p=self.top_p,
-                topic=self.topic,
-            )
+                self.scene = await Scene.create(
+                    characters_generator=ChooseCharactersFrom([dc.character for dc in displayable_characters]),
+                    location_generator=location_generator,
+                    selector=self.selector,
+                    n=self.n,
+                    base_url=self.base_url,
+                    model=self.model,
+                    top_p=self.top_p,
+                    topic=self.topic,
+                )
+            else:
+                self.scene = self.continue_
 
             self.scene_filename = make_filename(self.scene)
 
@@ -322,6 +326,10 @@ class Display:
         async def write():
             iterator = self.replay.replay() if self.replay is not None else self.scene.write()
 
+            if self.continue_ is not None:
+                for message in self.continue_.data.messages:
+                    self.tts_queue.put_nowait(message)
+
             async for message in iterator:
                 self.tts_queue.put_nowait(message)
 
@@ -336,7 +344,7 @@ class Display:
                     self.display_queue.put_nowait(DisplayableMessage(message, audio_id=await self.create_audio_for(message)))
                 else:
                     self.display_queue.put_nowait(DisplayableMessage(message))
-                
+
                 if self.frontloading is not None:
                     self.frontloading -= 1
                 if self.frontloading == 0:
@@ -362,16 +370,16 @@ async def display_main():
     else:
         raise ValueError("n must be provided in scene_options.yaml")
 
-    if "beam_length" in config:
-        beam_length = config["beam_length"]
+    if "base_url" in config:
+        base_url = config["base_url"]
     else:
-        raise ValueError("beam_length must be provided in scene_options.yaml")
-    
-    if "beam_n" in config:
-        beam_n = config["beam_n"]
+        raise ValueError("base_url must be provided in scene_options.yaml")
+
+    if "model" in config:
+        model = config["model"]
     else:
-        raise ValueError("beam_n must be provided in scene_options.yaml")
-    
+        raise ValueError("model must be provided in scene_options.yaml")
+
     if "top_p" in config:
         top_p = config["top_p"]
     else:
@@ -379,15 +387,17 @@ async def display_main():
 
     topic = config["topic"] if "topic" in config else None
     replay = load(config["replay"]) if "replay" in config else None
+    continue_ = Scene.continue_(selector, n, top_p, load(config["continue"])) if "continue" in config else None
 
     await Display(
         selector=selector,
         n=n,
-        beam_length=beam_length,
-        beam_n=beam_n,
+        base_url=base_url,
+        model=model,
         top_p=top_p,
         topic=topic,
-        replay=replay
+        replay=replay,
+        continue_=continue_,
     ).run()
 
 
