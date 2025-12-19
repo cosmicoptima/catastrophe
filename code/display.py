@@ -179,7 +179,8 @@ class DisplayableMessage:
 
 
 class Display:
-    def __init__(self, selector, n, base_url, model, top_p, topic, replay=None, continue_=None):
+    def __init__(self, selector, n, base_url, model, top_p, topic, replay=None, continue_=None,
+                 selector_base_url=None, selector_model=None, selector_api_key=None, selector_provider=None):
         self.selector = selector
         self.n = n
         self.base_url = base_url
@@ -188,11 +189,15 @@ class Display:
         self.topic = topic
         self.replay = replay
         self.continue_ = continue_
+        self.selector_base_url = selector_base_url
+        self.selector_model = selector_model
+        self.selector_api_key = selector_api_key
+        self.selector_provider = selector_provider
 
     async def create_audio_for(self, message):
         dc = displayable_character_by_name(message.speaker)
 
-        response = await tts_with_retry(model="tts-1", voice=dc.voice, input=message.body, speed=1.15)
+        response = await tts_with_retry(model="tts-1", voice=dc.voice, input=message.body, speed=1)
 
         audio_id = nanoid.generate()
 
@@ -308,6 +313,10 @@ class Display:
                     model=self.model,
                     top_p=self.top_p,
                     topic=self.topic,
+                    selector_base_url=self.selector_base_url,
+                    selector_model=self.selector_model,
+                    selector_api_key=self.selector_api_key,
+                    selector_provider=self.selector_provider,
                 )
             else:
                 self.scene = self.continue_
@@ -389,6 +398,12 @@ async def display_main():
     replay = load(config["replay"]) if "replay" in config else None
     continue_ = Scene.continue_(selector, n, top_p, load(config["continue"])) if "continue" in config else None
 
+    # Optional selector-specific config
+    selector_base_url = config.get("selector_base_url")
+    selector_model = config.get("selector_model")
+    selector_api_key = config.get("selector_api_key")
+    selector_provider = config.get("selector_provider")
+
     await Display(
         selector=selector,
         n=n,
@@ -398,6 +413,10 @@ async def display_main():
         topic=topic,
         replay=replay,
         continue_=continue_,
+        selector_base_url=selector_base_url,
+        selector_model=selector_model,
+        selector_api_key=selector_api_key,
+        selector_provider=selector_provider,
     ).run()
 
 

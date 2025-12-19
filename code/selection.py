@@ -1,4 +1,5 @@
 from core import *
+from core import chat_complete_with_retry
 
 from abc import ABC, abstractmethod
 import asyncio
@@ -117,15 +118,29 @@ class OOMS(Selector):
             history_messages.pop(0)
 
         while True:
-            response = await complete_with_retry(
-                data.base_url,
-                model=data.model,
-                prompt=prompt,
-                max_tokens=1,
-                temperature=0,
-            )
+            # Use selector-specific model/url if configured, otherwise fall back to main config
+            if data.selector_base_url:
+                response = await chat_complete_with_retry(
+                    data.selector_base_url,
+                    data.selector_model or "K3",
+                    prompt,
+                    api_key=data.selector_api_key,
+                    provider=data.selector_provider,
+                    max_tokens=1000,
+                    temperature=1,
+                )
+                response_text = response.choices[0].message.content
+            else:
+                response = await complete_with_retry(
+                    data.base_url,
+                    model=data.model,
+                    prompt=prompt,
+                    max_tokens=1,
+                    temperature=0,
+                )
+                response_text = response.choices[0].text
 
-            match = re.match(r"\d+", response.choices[0].text)
+            match = re.match(r"\d+", response_text)
             if match is not None:
                 choice_index = int(match.group(0))
                 if 1 <= choice_index <= len(choices):
@@ -252,10 +267,11 @@ class Divide(Selector):
     async def select(self, messages: List[Message], data: SceneData):
         chunks = [messages[i * self.by:(i + 1) * self.by] for i in range(ceil(len(messages) / self.by))]
 
-        async def select(chunk):
+        async def select_chunk(chunk):
             return chunk[await self.using.select(chunk, data)]
 
-        new_messages = await asyncio.gather(*[select(chunk) for chunk in chunks])
+        new_messages = await asyncio.gather(*[select_chunk(chunk) for chunk in chunks])
+
         return messages.index(new_messages[await self.then.select(new_messages, data)])
 
 

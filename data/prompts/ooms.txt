@@ -71,4 +71,4 @@ Here are the {n_continuations} continuations:
 
 {instructions}
 
-You choose #
+Output only the number of your chosen continuation:

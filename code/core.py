@@ -23,6 +23,38 @@ async def complete_with_retry(base_url, **kwargs):
             console.log("Internal server error. Retrying...")
 
 
+async def chat_complete_with_retry(base_url, model, prompt, api_key=None, provider=None, **kwargs):
+    import asyncio as aio
+    from openai import RateLimitError, APITimeoutError
+    client = AsyncOpenAI(base_url=base_url, api_key=api_key or "dummy", timeout=60.0)
+
+    extra_body = {}
+    if provider:
+        extra_body["provider"] = {"order": [provider]}
+
+    console.log(f"Calling selector: {model}...")
+    while True:
+        try:
+            result = await client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                extra_body=extra_body if extra_body else None,
+                **kwargs
+            )
+            console.log(f"Selector returned: {result.choices[0].message.content[:50] if result.choices else 'empty'}...")
+            return result
+        except InternalServerError:
+            console.log("Internal server error. Retrying...")
+        except RateLimitError as e:
+            console.log(f"Rate limit hit. Waiting 2s...")
+            await aio.sleep(2)
+        except APITimeoutError:
+            console.log("Timeout. Retrying...")
+        except Exception as e:
+            console.log(f"Error: {type(e).__name__}: {e}")
+            raise
+
+
 @dataclass
 class Character:
     name: str
@@ -80,6 +112,10 @@ class SceneData:
     model: str
     include_topic_line: bool
     seed: Optional[int] = None
+    selector_base_url: Optional[str] = None
+    selector_model: Optional[str] = None
+    selector_api_key: Optional[str] = None
+    selector_provider: Optional[str] = None
 
 
 @dataclass

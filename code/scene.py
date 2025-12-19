@@ -74,6 +74,10 @@ class Scene:
         model: str,
         top_p: float,
         topic: Optional[str] = None,
+        selector_base_url: Optional[str] = None,
+        selector_model: Optional[str] = None,
+        selector_api_key: Optional[str] = None,
+        selector_provider: Optional[str] = None,
     ):
         scene = cls()
 
@@ -124,6 +128,10 @@ class Scene:
             model=model,
             include_topic_line=True,
             seed=random.randint(2**32),
+            selector_base_url=selector_base_url,
+            selector_model=selector_model,
+            selector_api_key=selector_api_key,
+            selector_provider=selector_provider,
         )
 
         console.log(f"Selection profile: {selector} @ {n}")
